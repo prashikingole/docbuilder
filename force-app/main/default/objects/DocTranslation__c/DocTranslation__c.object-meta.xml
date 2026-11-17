@@ -5,8 +5,9 @@
     <enableHistory>false</enableHistory>
     <enableReports>true</enableReports>
     <enableSearch>true</enableSearch>
+    <externalSharingModel>Private</externalSharingModel>
     <label>Document Translation</label>
     <pluralLabel>Document Translations</pluralLabel>
     <nameField><displayFormat>TR-{000000}</displayFormat><label>Translation Ref</label><type>AutoNumber</type></nameField>
-    <sharingModel>ReadWrite</sharingModel>
+    <sharingModel>Read</sharingModel>
 </CustomObject>

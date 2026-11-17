@@ -1,3 +1,4 @@
+import { renderSafe } from 'c/docBuilderSafeHtml';
 import { LightningElement, api } from 'lwc';
 import sendForSignature from '@salesforce/apex/DocBuilderController.sendForSignature';
 
@@ -22,6 +23,27 @@ export default class DocBuilderSignSend extends LightningElement {
     @api providerLabel;
     @api documentName;
     @api variant = 'desk';
+
+    /** The template's wording for this record, shown until the user types their own. */
+    @api
+    get initialSubject() {
+        return this.subject;
+    }
+    set initialSubject(value) {
+        if (!this.subject && value) {
+            this.subject = value;
+        }
+    }
+
+    @api
+    get initialMessage() {
+        return this.message;
+    }
+    set initialMessage(value) {
+        if (!this.message && value) {
+            this.message = value;
+        }
+    }
 
     _signers = [];
     _previewHtml;
@@ -58,9 +80,7 @@ export default class DocBuilderSignSend extends LightningElement {
             return;
         }
         if (this.renderedPreview !== this._previewHtml) {
-            // The HTML comes from our own renderer, which escapes every data value.
-            // eslint-disable-next-line @lwc/lwc/no-inner-html
-            host.innerHTML = this._previewHtml || '';
+            renderSafe(host, this._previewHtml);
             this.renderedPreview = this._previewHtml;
         }
     }

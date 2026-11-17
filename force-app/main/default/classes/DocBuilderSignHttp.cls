@@ -2,7 +2,45 @@
  * HTTP helpers shared by the built-in providers. Custom providers are welcome to use them too.
  */
 global with sharing class DocBuilderSignHttp {
-    /** Calls the provider through its Named Credential and fails with the response body on any non-2xx status. */
+    /**
+     * A provider refused a call. The message is safe to show users; the provider's own response, which can
+     * contain internal detail, is kept in `detail` and stored only in the admin-only Error Detail field.
+     */
+    global class ProviderException extends Exception {
+        global String detail;
+    }
+
+    static final Pattern ID_PATTERN = Pattern.compile('^[A-Za-z0-9._*:-]{1,255}$');
+
+    /**
+     * Makes a provider reference (envelope, agreement or request ID) safe to put in a URL path.
+     * Rejects anything that is not a plain identifier, so a stored value cannot steer a call to another endpoint.
+     */
+    global static String pathId(String reference) {
+        if (reference == null || !ID_PATTERN.matcher(reference).matches()) {
+            throw new DocBuilder.DocBuilderException('The provider reference is not a valid identifier.');
+        }
+        return EncodingUtil.urlEncode(reference, 'UTF-8');
+    }
+
+    /** A message fit for any user: DocBuilder's own messages as they are, anything else replaced with a plain one. */
+    global static String userMessage(Exception e) {
+        if (e instanceof DocBuilder.DocBuilderException || e instanceof ProviderException) {
+            return e.getMessage();
+        }
+        return 'Something went wrong. An administrator can see the details on this record.';
+    }
+
+    /** Technical detail for administrators. */
+    global static String detailOf(Exception e) {
+        String detail = e.getTypeName() + ': ' + e.getMessage();
+        if (e instanceof ProviderException && ((ProviderException) e).detail != null) {
+            detail += '\n' + ((ProviderException) e).detail;
+        }
+        return detail + '\n' + e.getStackTraceString();
+    }
+
+    /** Calls the provider through its Named Credential and fails on any non-2xx status. */
     global static HttpResponse call(DocBuilderSign.ProviderConfig config, String method, String path, String contentType, Blob body) {
         if (String.isBlank(config.namedCredential)) {
             throw new DocBuilder.DocBuilderException('Signature provider "' + config.name + '" has no Named Credential set.');
@@ -19,8 +57,10 @@ global with sharing class DocBuilderSignHttp {
         }
         HttpResponse response = new Http().send(request);
         if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
-            String detail = response.getBody();
-            throw new DocBuilder.DocBuilderException(config.label + ' answered ' + response.getStatusCode() + ': ' + (detail == null ? '' : detail.left(500)));
+            ProviderException failure = new ProviderException(config.label + ' refused the request (HTTP ' + response.getStatusCode() + ').');
+            String responseBody = response.getBody();
+            failure.detail = responseBody == null ? null : responseBody.left(2000);
+            throw failure;
         }
         return response;
     }

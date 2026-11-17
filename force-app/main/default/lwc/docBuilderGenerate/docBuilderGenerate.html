@@ -1,7 +1,11 @@
 <template>
-    <lightning-quick-action-panel header="Generate document">
+    <div class="dlg">
         <template lwc:if={loading}>
             <lightning-spinner alternative-text="Working" size="medium"></lightning-spinner>
+        </template>
+
+        <template lwc:if={error}>
+            <div class="warn-box" role="alert">{error}</div>
         </template>
 
         <!-- Generated -->
@@ -35,6 +39,8 @@
                 document-name={documentName}
                 variant={signStyle}
                 signers={signers}
+                initial-subject={signSubject}
+                initial-message={signMessage}
                 preview-html={previewHtml}
                 onsent={handleSignSent}
                 onback={handleSignBack}
@@ -131,11 +137,8 @@
             </div>
         </template>
 
-        <template lwc:if={error}>
-            <div class="warn-box slds-m-top_medium" role="alert">{error}</div>
-        </template>
 
-        <div slot="footer" class="footer">
+        <div class="footer">
             <template lwc:if={showMainButton}>
                 <span class="summary">{summary}</span>
             </template>
@@ -146,5 +149,5 @@
                 </template>
             </span>
         </div>
-    </lightning-quick-action-panel>
+    </div>
 </template>

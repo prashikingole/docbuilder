@@ -41,6 +41,9 @@ public with sharing class DocBuilderDesignerController {
         public String relationshipName;
         @AuraEnabled
         public String referenceTo;
+        /** Active picklist values, so rules offer a list to choose from instead of free typing. */
+        @AuraEnabled
+        public List<String> values;
     }
 
     public class ChildInfo {
@@ -69,7 +72,7 @@ public with sharing class DocBuilderDesignerController {
 
     @AuraEnabled
     public static List<DocTemplate__c> listTemplates() {
-        return [SELECT Id, Name, Base_Object__c, Status__c FROM DocTemplate__c ORDER BY Name LIMIT 500];
+        return [SELECT Id, Name, Base_Object__c, Status__c FROM DocTemplate__c WITH USER_MODE ORDER BY Name LIMIT 500];
     }
 
     @AuraEnabled
@@ -80,8 +83,8 @@ public with sharing class DocBuilderDesignerController {
             }
             Schema.DescribeSObjectResult described = describe(baseObject);
             DocTemplate__c template = new DocTemplate__c(Name = name.trim().left(80), Base_Object__c = described.getName(), Status__c = 'Draft', Default_Language__c = 'en');
-            insert template;
-            insert new DocTemplateVersion__c(Template__c = template.Id, Version_Number__c = 1, Status__c = 'Draft', Body_JSON__c = '{"blocks":[],"calculations":[]}');
+            insert as user template;
+            insert as user new DocTemplateVersion__c(Template__c = template.Id, Version_Number__c = 1, Status__c = 'Draft', Body_JSON__c = '{"blocks":[],"calculations":[]}');
             return loadTemplate(template.Id);
         } catch (Exception e) {
             throw new AuraHandledException(e.getMessage());
@@ -95,6 +98,7 @@ public with sharing class DocBuilderDesignerController {
             SELECT Id, Name, Base_Object__c, Status__c, File_Name_Pattern__c, Languages__c, Default_Language__c, Active_Version__c, Active_Version__r.Version_Number__c
             FROM DocTemplate__c
             WHERE Id = :templateId
+            WITH USER_MODE
         ];
         TemplateState state = new TemplateState();
         state.templateId = template.Id;
@@ -108,7 +112,7 @@ public with sharing class DocBuilderDesignerController {
 
         DocTemplateVersion__c version = draftOf(templateId);
         if (version == null && template.Active_Version__c != null) {
-            version = [SELECT Id, Version_Number__c, Status__c, Body_JSON__c FROM DocTemplateVersion__c WHERE Id = :template.Active_Version__c];
+            version = [SELECT Id, Version_Number__c, Status__c, Body_JSON__c FROM DocTemplateVersion__c WHERE Id = :template.Active_Version__c WITH USER_MODE];
         }
         if (version != null) {
             state.versionId = version.Id;
@@ -124,23 +128,23 @@ public with sharing class DocBuilderDesignerController {
     public static TemplateState saveDraft(Id templateId, String name, String fileNamePattern, String languages, String bodyJson) {
         try {
             JSON.deserializeUntyped(bodyJson);
-            DocTemplate__c template = [SELECT Id, Active_Version__c FROM DocTemplate__c WHERE Id = :templateId FOR UPDATE];
+            DocTemplate__c template = [SELECT Id, Active_Version__c FROM DocTemplate__c WHERE Id = :templateId WITH USER_MODE FOR UPDATE];
             if (String.isNotBlank(name)) {
                 template.Name = name.trim().left(80);
             }
             template.File_Name_Pattern__c = fileNamePattern;
             template.Languages__c = languages;
-            update template;
+            update as user template;
 
             DocTemplateVersion__c draft = draftOf(templateId);
             if (draft != null) {
                 draft.Body_JSON__c = bodyJson;
-                update draft;
+                update as user draft;
             } else {
-                AggregateResult latest = [SELECT MAX(Version_Number__c) maxVersion FROM DocTemplateVersion__c WHERE Template__c = :templateId];
+                AggregateResult latest = [SELECT MAX(Version_Number__c) maxVersion FROM DocTemplateVersion__c WHERE Template__c = :templateId WITH USER_MODE];
                 Decimal nextNumber = latest.get('maxVersion') == null ? 1 : (Decimal) latest.get('maxVersion') + 1;
                 draft = new DocTemplateVersion__c(Template__c = templateId, Version_Number__c = nextNumber, Status__c = 'Draft', Body_JSON__c = bodyJson);
-                insert draft;
+                insert as user draft;
                 // Carry translations forward so a new version does not start untranslated.
                 if (template.Active_Version__c != null) {
                     List<DocTranslation__c> copies = new List<DocTranslation__c>();
@@ -148,12 +152,13 @@ public with sharing class DocBuilderDesignerController {
                         SELECT Language__c, Block_Id__c, Part__c, Source_Text__c, Translated_Text__c
                         FROM DocTranslation__c
                         WHERE Template_Version__c = :template.Active_Version__c
+                        WITH USER_MODE
                     ]) {
                         DocTranslation__c copy = t.clone(false, true);
                         copy.Template_Version__c = draft.Id;
                         copies.add(copy);
                     }
-                    insert copies;
+                    insert as user copies;
                 }
             }
             return loadTemplate(templateId);
@@ -166,7 +171,7 @@ public with sharing class DocBuilderDesignerController {
     @AuraEnabled
     public static TemplateState activate(Id templateId) {
         try {
-            DocTemplate__c template = [SELECT Id, Base_Object__c, Active_Version__c FROM DocTemplate__c WHERE Id = :templateId FOR UPDATE];
+            DocTemplate__c template = [SELECT Id, Base_Object__c, Active_Version__c FROM DocTemplate__c WHERE Id = :templateId WITH USER_MODE FOR UPDATE];
             DocTemplateVersion__c draft = draftOf(templateId);
             if (draft == null) {
                 throw new DocBuilder.DocBuilderException('There is no draft to activate. Save a change first.');
@@ -180,10 +185,10 @@ public with sharing class DocBuilderDesignerController {
                 changes.add(new DocTemplateVersion__c(Id = template.Active_Version__c, Status__c = 'Archived'));
             }
             changes.add(new DocTemplateVersion__c(Id = draft.Id, Status__c = 'Active', Activated_On__c = System.now()));
-            update changes;
+            update as user changes;
             template.Active_Version__c = draft.Id;
             template.Status__c = 'Active';
-            update template;
+            update as user template;
             return loadTemplate(templateId);
         } catch (Exception e) {
             throw new AuraHandledException(e.getMessage());
@@ -195,6 +200,7 @@ public with sharing class DocBuilderDesignerController {
             SELECT Id, Version_Number__c, Status__c, Body_JSON__c
             FROM DocTemplateVersion__c
             WHERE Template__c = :templateId AND Status__c = 'Draft'
+            WITH USER_MODE
             ORDER BY Version_Number__c DESC
             LIMIT 1
         ];
@@ -230,6 +236,14 @@ public with sharing class DocBuilderDesignerController {
                     field.relationshipName = d.getRelationshipName();
                     field.referenceTo = String.valueOf(d.getReferenceTo()[0]);
                 }
+                if (d.getType() == Schema.DisplayType.PICKLIST || d.getType() == Schema.DisplayType.MULTIPICKLIST) {
+                    field.values = new List<String>();
+                    for (Schema.PicklistEntry entry : d.getPicklistValues()) {
+                        if (entry.isActive() && field.values.size() < 300) {
+                            field.values.add(entry.getValue());
+                        }
+                    }
+                }
                 info.fields.add(field);
             }
             for (Schema.ChildRelationship rel : described.getChildRelationships()) {
@@ -258,6 +272,68 @@ public with sharing class DocBuilderDesignerController {
         }
     }
 
+    public class CalcResult {
+        @AuraEnabled
+        public Boolean ok;
+        /** Calculated value name -> its value as it would print. */
+        @AuraEnabled
+        public Map<String, String> values = new Map<String, String>();
+        @AuraEnabled
+        public String message;
+    }
+
+    /** Works out every calculated value of an unsaved template for one record, for the live result next to a formula. */
+    @AuraEnabled
+    public static CalcResult calcValues(String bodyJson, String baseObject, Id recordId) {
+        CalcResult result = new CalcResult();
+        try {
+            Map<String, Object> body = (Map<String, Object>) JSON.deserializeUntyped(bodyJson);
+            DocBuilderContext ctx = new DocBuilderContext(baseObject, recordId, body, null);
+            ctx.load();
+            for (String name : ctx.calcs.keySet()) {
+                result.values.put(name, ctx.formatCalc(name, null));
+            }
+            result.ok = true;
+        } catch (Exception e) {
+            result.ok = false;
+            result.message = e.getMessage();
+        }
+        return result;
+    }
+
+    /** Every signature provider row with whether it is switched on. */
+    @AuraEnabled
+    public static List<DocBuilderSign.ProviderStatus> listProviders() {
+        return DocBuilderSign.allProviders();
+    }
+
+    public class ConnectionResult {
+        @AuraEnabled
+        public Boolean ok;
+        @AuraEnabled
+        public String message;
+    }
+
+    /**
+     * Tries a provider's connection without sending anything. Admin-only (this class is only in the
+     * DocBuilder Admin permission set), so the provider's own error text is shown to help set-up.
+     */
+    @AuraEnabled
+    public static ConnectionResult testProvider(String providerName) {
+        ConnectionResult result = new ConnectionResult();
+        try {
+            result.message = DocBuilderSign.testConnection(providerName);
+            result.ok = true;
+        } catch (DocBuilderSignHttp.ProviderException e) {
+            result.ok = false;
+            result.message = e.getMessage() + (e.detail == null ? '' : ' ' + e.detail.left(300));
+        } catch (Exception e) {
+            result.ok = false;
+            result.message = e.getMessage();
+        }
+        return result;
+    }
+
     /** Health check: returns null when every field the template uses exists and is readable, otherwise the problem. */
     @AuraEnabled
     public static String check(String bodyJson, String baseObject) {
@@ -272,7 +348,7 @@ public with sharing class DocBuilderDesignerController {
 
     @AuraEnabled
     public static List<DocBuilderPrepare.TextPart> getTranslations(Id versionId, String language) {
-        DocTemplateVersion__c version = [SELECT Body_JSON__c FROM DocTemplateVersion__c WHERE Id = :versionId];
+        DocTemplateVersion__c version = [SELECT Body_JSON__c FROM DocTemplateVersion__c WHERE Id = :versionId WITH USER_MODE];
         Map<String, Object> body = (Map<String, Object>) JSON.deserializeUntyped(version.Body_JSON__c);
         return DocBuilderPrepare.parts(body, versionId, language);
     }
@@ -284,7 +360,7 @@ public with sharing class DocBuilderDesignerController {
             if (String.isBlank(language)) {
                 throw new DocBuilder.DocBuilderException('Choose a language first.');
             }
-            delete [SELECT Id FROM DocTranslation__c WHERE Template_Version__c = :versionId AND Language__c = :language];
+            delete as user [SELECT Id FROM DocTranslation__c WHERE Template_Version__c = :versionId AND Language__c = :language WITH USER_MODE];
             List<DocTranslation__c> rows = new List<DocTranslation__c>();
             for (Object o : (List<Object>) JSON.deserializeUntyped(itemsJson)) {
                 Map<String, Object> item = (Map<String, Object>) o;
@@ -303,7 +379,7 @@ public with sharing class DocBuilderDesignerController {
                     )
                 );
             }
-            insert rows;
+            insert as user rows;
         } catch (Exception e) {
             throw new AuraHandledException(e.getMessage());
         }

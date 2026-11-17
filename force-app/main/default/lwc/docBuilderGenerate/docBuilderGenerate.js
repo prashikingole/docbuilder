@@ -1,6 +1,6 @@
+import { renderSafe } from 'c/docBuilderSafeHtml';
 import { LightningElement, api, wire } from 'lwc';
 import { NavigationMixin } from 'lightning/navigation';
-import { CloseActionScreenEvent } from 'lightning/actions';
 import getTemplates from '@salesforce/apex/DocBuilderController.getTemplates';
 import previewTemplate from '@salesforce/apex/DocBuilderController.preview';
 import generateDocument from '@salesforce/apex/DocBuilderController.generate';
@@ -25,6 +25,7 @@ export default class DocBuilderGenerate extends NavigationMixin(LightningElement
     emailBody = '';
 
     providers = [];
+    canEmail = false;
     signers = [];
     signSubject = '';
     signMessage = '';
@@ -56,9 +57,7 @@ export default class DocBuilderGenerate extends NavigationMixin(LightningElement
     renderedCallback() {
         const host = this.template.querySelector('.preview-body');
         if (host && this.renderedPreview !== this.previewHtml) {
-            // The HTML comes from our own renderer, which escapes every data value.
-            // eslint-disable-next-line @lwc/lwc/no-inner-html
-            host.innerHTML = this.previewHtml || '';
+            renderSafe(host, this.previewHtml);
             this.renderedPreview = this.previewHtml;
         }
     }
@@ -113,10 +112,11 @@ export default class DocBuilderGenerate extends NavigationMixin(LightningElement
 
     /** Every provider an admin has switched on becomes its own choice, labelled as they named it. */
     get actionOptions() {
-        const options = [
-            { label: 'Generate the PDF', value: 'generate' },
-            { label: 'Generate and send by email', value: 'email' }
-        ];
+        const options = [{ label: 'Generate the PDF', value: 'generate' }];
+        // Shown only to users allowed to email documents; the server enforces the same rule.
+        if (this.canEmail) {
+            options.push({ label: 'Generate and send by email', value: 'email' });
+        }
         this.providers.forEach((p) => options.push({ label: p.label, value: SIGN_PREFIX + p.name }));
         return options;
     }
@@ -267,6 +267,15 @@ export default class DocBuilderGenerate extends NavigationMixin(LightningElement
         try {
             const options = await getSignOptions({ templateId: first.Id, recordId: this.recordId });
             this.providers = options.providers || [];
+            this.canEmail = options.canEmail === true;
+            // The template's wording prefills the boxes; anything the user has already typed is kept.
+            this.emailSubject = this.emailSubject || options.emailSubject || '';
+            this.emailBody = this.emailBody || options.emailBody || '';
+            this.signSubject = this.signSubject || options.signSubject || '';
+            this.signMessage = this.signMessage || options.signMessage || '';
+            if (this.action === 'email' && !this.canEmail) {
+                this.action = 'generate';
+            }
             this.signers = (options.signers || []).map((s) => ({ ...s }));
             if (this.isSign && !this.provider) {
                 this.action = 'generate';
@@ -423,6 +432,7 @@ export default class DocBuilderGenerate extends NavigationMixin(LightningElement
             type: 'standard__recordPage',
             attributes: { recordId: this.signRequest.Id, actionName: 'view' }
         });
+        this.close();
     }
 
     handleFlowStatus(event) {
@@ -443,6 +453,7 @@ export default class DocBuilderGenerate extends NavigationMixin(LightningElement
             attributes: { pageName: 'filePreview' },
             state: { selectedRecordId: this.result.contentDocumentId }
         });
+        this.close();
     }
 
     openDocumentRecord() {
@@ -450,6 +461,7 @@ export default class DocBuilderGenerate extends NavigationMixin(LightningElement
             type: 'standard__recordPage',
             attributes: { recordId: this.result.documentId, actionName: 'view' }
         });
+        this.close();
     }
 
     again() {
@@ -460,7 +472,8 @@ export default class DocBuilderGenerate extends NavigationMixin(LightningElement
     }
 
     close() {
-        this.dispatchEvent(new CloseActionScreenEvent());
+        // The modal (or any other host) closes itself when it hears this.
+        this.dispatchEvent(new CustomEvent('close'));
     }
 
     messageOf(error) {

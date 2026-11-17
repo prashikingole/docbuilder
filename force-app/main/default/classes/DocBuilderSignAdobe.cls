@@ -3,7 +3,7 @@
  * Named Credential: URL = your account's API access point (for example https://api.na1.adobesign.com), with OAuth or an integration key.
  * Fields are placed with Acrobat Sign text tags printed in the document.
  */
-global with sharing class DocBuilderSignAdobe implements DocBuilderSignProvider, DocBuilderSignWebhook {
+global with sharing class DocBuilderSignAdobe implements DocBuilderSignProvider, DocBuilderSignWebhook, DocBuilderSignCheck {
     static final String API = '/api/rest/v6';
 
     global String marker(Integer signerNumber, String fieldType) {
@@ -56,7 +56,7 @@ global with sharing class DocBuilderSignAdobe implements DocBuilderSignProvider,
     }
 
     global DocBuilderSign.StatusResult getStatus(DocBuilderSign.ProviderConfig config, String externalId) {
-        Map<String, Object> agreement = DocBuilderSignHttp.parse(DocBuilderSignHttp.call(config, 'GET', API + '/agreements/' + externalId, null, null));
+        Map<String, Object> agreement = DocBuilderSignHttp.parse(DocBuilderSignHttp.call(config, 'GET', API + '/agreements/' + DocBuilderSignHttp.pathId(externalId), null, null));
         DocBuilderSign.StatusResult result = new DocBuilderSign.StatusResult();
         String status = String.valueOf(agreement.get('status')).toUpperCase();
         if (status == 'SIGNED' || status == 'APPROVED' || status == 'COMPLETED') {
@@ -67,7 +67,7 @@ global with sharing class DocBuilderSignAdobe implements DocBuilderSignProvider,
             result.status = 'Sent';
         }
 
-        Map<String, Object> members = DocBuilderSignHttp.parse(DocBuilderSignHttp.call(config, 'GET', API + '/agreements/' + externalId + '/members', null, null));
+        Map<String, Object> members = DocBuilderSignHttp.parse(DocBuilderSignHttp.call(config, 'GET', API + '/agreements/' + DocBuilderSignHttp.pathId(externalId) + '/members', null, null));
         for (Object ps : DocBuilderSignHttp.listOf(members.get('participantSets'))) {
             Map<String, Object> participantSet = (Map<String, Object>) ps;
             String setStatus = participantSet.get('status') == null ? '' : String.valueOf(participantSet.get('status')).toUpperCase();
@@ -91,14 +91,14 @@ global with sharing class DocBuilderSignAdobe implements DocBuilderSignProvider,
     }
 
     global Blob download(DocBuilderSign.ProviderConfig config, String externalId) {
-        return DocBuilderSignHttp.call(config, 'GET', API + '/agreements/' + externalId + '/combinedDocument', null, null).getBodyAsBlob();
+        return DocBuilderSignHttp.call(config, 'GET', API + '/agreements/' + DocBuilderSignHttp.pathId(externalId) + '/combinedDocument', null, null).getBodyAsBlob();
     }
 
     global void cancel(DocBuilderSign.ProviderConfig config, String externalId, String reason) {
         DocBuilderSignHttp.callJson(
             config,
             'PUT',
-            API + '/agreements/' + externalId + '/state',
+            API + '/agreements/' + DocBuilderSignHttp.pathId(externalId) + '/state',
             new Map<String, Object>{ 'state' => 'CANCELLED', 'agreementCancellationInfo' => new Map<String, Object>{ 'comment' => reason, 'notifyOthers' => true } }
         );
     }
@@ -126,5 +126,13 @@ global with sharing class DocBuilderSignAdobe implements DocBuilderSignProvider,
             response.addHeader('Content-Type', 'application/json');
             response.responseBody = Blob.valueOf(JSON.serialize(new Map<String, Object>{ 'xAdobeSignClientId' => clientId }));
         }
+    }
+
+    // ---------- Connection test ----------
+
+    global String check(DocBuilderSign.ProviderConfig config) {
+        Map<String, Object> me = DocBuilderSignHttp.parse(DocBuilderSignHttp.call(config, 'GET', API + '/users/me', null, null));
+        Object email = me.get('email');
+        return 'Connected to Adobe Acrobat Sign' + (email == null ? '.' : ' as ' + String.valueOf(email) + '.');
     }
 }

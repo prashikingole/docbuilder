@@ -5,8 +5,9 @@
     <enableHistory>false</enableHistory>
     <enableReports>true</enableReports>
     <enableSearch>true</enableSearch>
+    <externalSharingModel>Private</externalSharingModel>
     <label>Document Clause</label>
     <pluralLabel>Document Clauses</pluralLabel>
     <nameField><label>Clause Name</label><type>Text</type></nameField>
-    <sharingModel>ReadWrite</sharingModel>
+    <sharingModel>Read</sharingModel>
 </CustomObject>

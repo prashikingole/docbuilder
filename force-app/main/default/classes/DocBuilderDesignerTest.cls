@@ -1,5 +1,10 @@
 @IsTest
 private class DocBuilderDesignerTest {
+    @TestSetup
+    static void grantPermissions() {
+        DocBuilderTestUtil.grantAdmin();
+    }
+
     static Map<String, Object> cond(String field, String op, Object value) {
         return new Map<String, Object>{ 'field' => field, 'op' => op, 'value' => value };
     }
@@ -127,6 +132,101 @@ private class DocBuilderDesignerTest {
     }
 
     @IsTest
+    static void formulaFunctionsTableTotalsWidthsAndLiveResults() {
+        Account acct = new Account(Name = 'Harbor Sample Co');
+        insert acct;
+        insert new List<Contact>{
+            new Contact(AccountId = acct.Id, LastName = 'Nair', Department = 'Operations'),
+            new Contact(AccountId = acct.Id, LastName = 'Rivera', Department = 'Technology')
+        };
+        Opportunity opp = new Opportunity(AccountId = acct.Id, Name = 'Deal F', StageName = 'Prospecting', CloseDate = Date.today(), Amount = 3000);
+        insert opp;
+
+        List<Object> calculations = new List<Object>{
+            new Map<String, Object>{ 'name' => 'AllPeople', 'type' => 'count', 'source' => 'Account.Contacts' },
+            new Map<String, Object>{ 'name' => 'Big', 'type' => 'formula', 'expression' => 'IF(Amount >= 1000, ROUND(Amount * 0.12345, 2), 0)' },
+            new Map<String, Object>{ 'name' => 'Mx', 'type' => 'formula', 'expression' => 'MAX(1, calc:Big, 5) + MIN(2, ABS(-7)) + CEILING(1.2) + FLOOR(1.8)' },
+            new Map<String, Object>{ 'name' => 'Logic', 'type' => 'formula', 'expression' => 'AND(1, NOT(0), OR(0, Amount != 3000, Amount = 3000)) + (Amount < 10)' }
+        };
+        List<Object> blocks = new List<Object>{
+            new Map<String, Object>{ 'id' => 't', 'type' => 'text', 'text' => 'V {{calc:Big}} {{calc:Mx}} {{calc:Logic}} {{calc:AllPeople}}' },
+            new Map<String, Object>{
+                'id' => 'ops',
+                'type' => 'table',
+                'source' => 'Account.Contacts',
+                'columns' => new List<Object>{ new Map<String, Object>{ 'header' => 'Name', 'field' => 'LastName' } },
+                'rowFilter' => new Map<String, Object>{ 'conditions' => new List<Object>{ cond('Department', 'eq', 'Operations') } },
+                'totals' => new List<Object>{ new Map<String, Object>{ 'label' => 'Shown', 'calc' => 'AllPeople' } }
+            },
+            new Map<String, Object>{ 'id' => 'l', 'type' => 'text', 'text' => 'L', 'span' => 40 },
+            new Map<String, Object>{ 'id' => 'r', 'type' => 'text', 'text' => 'R', 'span' => 60, 'beside' => true }
+        };
+        String body = JSON.serialize(new Map<String, Object>{ 'blocks' => blocks, 'calculations' => calculations });
+        String html = DocBuilderEngine.previewHtml(body, 'Opportunity', opp.Id, null, null);
+        System.assert(html.contains('V 370.35 375.35 1 2'), html);
+        System.assert(html.contains('Shown 1</td>'), 'A total under a filtered table counts only the rows it shows: ' + html);
+        System.assert(html.contains('width:40%') && html.contains('width:60%'), 'Widths set by dragging are kept');
+
+        DocBuilderDesignerController.CalcResult live = DocBuilderDesignerController.calcValues(body, 'Opportunity', opp.Id);
+        System.assert(live.ok, live.message);
+        System.assertEquals('370.35', live.values.get('Big'));
+        System.assertEquals('2', live.values.get('AllPeople'));
+
+        for (String broken : new List<String>{ 'FOO(1)', 'ROUND(1, 2, 3)', 'IF(1, 2)', 'MAX()', 'ROUND(1,', 'Amount > ', '1, 2' }) {
+            calculations[1] = new Map<String, Object>{ 'name' => 'Big', 'type' => 'formula', 'expression' => broken };
+            DocBuilderDesignerController.CalcResult bad = DocBuilderDesignerController.calcValues(
+                JSON.serialize(new Map<String, Object>{ 'blocks' => new List<Object>(), 'calculations' => calculations }),
+                'Opportunity',
+                opp.Id
+            );
+            System.assertEquals(false, bad.ok, 'Expected "' + broken + '" to fail');
+        }
+
+        // Deep nesting fails with a clear message instead of an uncatchable stack overflow; normal nesting still works.
+        String deepBrackets = '('.repeat(300) + '1' + ')'.repeat(300);
+        String deepMinus = '-'.repeat(300) + '1';
+        String deepCalls = 'ABS('.repeat(300) + '1' + ')'.repeat(300);
+        for (String deep : new List<String>{ deepBrackets, deepMinus, deepCalls }) {
+            calculations[1] = new Map<String, Object>{ 'name' => 'Big', 'type' => 'formula', 'expression' => deep };
+            DocBuilderDesignerController.CalcResult tooDeep = DocBuilderDesignerController.calcValues(
+                JSON.serialize(new Map<String, Object>{ 'blocks' => new List<Object>(), 'calculations' => calculations }),
+                'Opportunity',
+                opp.Id
+            );
+            System.assertEquals(false, tooDeep.ok);
+            System.assert(tooDeep.message.contains('nested too deeply'), tooDeep.message);
+        }
+        calculations[1] = new Map<String, Object>{ 'name' => 'Big', 'type' => 'formula', 'expression' => 'ROUND(' + '('.repeat(10) + '7.25' + ')'.repeat(10) + ', 1)' };
+        DocBuilderDesignerController.CalcResult nested = DocBuilderDesignerController.calcValues(
+            JSON.serialize(new Map<String, Object>{ 'blocks' => new List<Object>(), 'calculations' => calculations }),
+            'Opportunity',
+            opp.Id
+        );
+        System.assert(nested.ok, nested.message);
+        System.assertEquals('7.3', nested.values.get('Big'));
+
+        List<Boolean> results = new List<Boolean>{ true, false };
+        System.assertEquals(true, new DocBuilderContext.LogicParser('NOT NOT (1 OR 2)', results).parse());
+        for (String deepLogic : new List<String>{ '('.repeat(300) + '1' + ')'.repeat(300), 'NOT '.repeat(300) + '1' }) {
+            try {
+                new DocBuilderContext.LogicParser(deepLogic, results).parse();
+                System.assert(false, 'Deeply nested rule logic should fail');
+            } catch (DocBuilder.DocBuilderException e) {
+                System.assert(e.getMessage().contains('Rule logic cannot be read'), e.getMessage());
+            }
+        }
+
+        DocBuilderDesignerController.ObjectInfo info = DocBuilderDesignerController.describeObject('Opportunity');
+        Boolean stageListed = false;
+        for (DocBuilderDesignerController.FieldInfo f : info.fields) {
+            if (f.name == 'StageName') {
+                stageListed = f.values != null && !f.values.isEmpty();
+            }
+        }
+        System.assert(stageListed, 'Picklist values are offered to rule editors');
+    }
+
+    @IsTest
     static void pageSetupHeaderFooterWatermarkImagesAndRichText() {
         Opportunity opp = makeData();
         Map<String, Object> page = new Map<String, Object>{
@@ -192,6 +292,102 @@ private class DocBuilderDesignerTest {
             names.add(p.blockId + '|' + p.part);
         }
         System.assert(names.contains('page|header') && names.contains('page|footer') && names.contains('page|watermark'), 'Page text is translatable');
+    }
+
+    static Map<String, Object> textBlock(String id, String text, Map<String, Object> extra) {
+        Map<String, Object> blk = new Map<String, Object>{ 'id' => id, 'type' => 'text', 'text' => text };
+        if (extra != null) {
+            blk.putAll(extra);
+        }
+        return blk;
+    }
+
+    static Map<String, Object> contactTable(String id, String department, String direction, String totalCalc) {
+        return new Map<String, Object>{
+            'id' => id,
+            'type' => 'table',
+            'source' => 'Account.Contacts',
+            'orderBy' => 'LastName',
+            'orderDirection' => direction,
+            'columns' => new List<Object>{ new Map<String, Object>{ 'header' => 'Name', 'field' => 'LastName' } },
+            'rowFilter' => new Map<String, Object>{ 'conditions' => new List<Object>{ cond('Department', 'eq', department) } },
+            'totals' => new List<Object>{ new Map<String, Object>{ 'label' => department + ' people', 'calc' => totalCalc } }
+        };
+    }
+
+    @IsTest
+    static void conditionsInTextColumnsAndTablesSharingAList() {
+        Account acct = new Account(Name = 'Harbor Sample Co', Industry = 'Logistics');
+        insert acct;
+        insert new List<Contact>{
+            new Contact(AccountId = acct.Id, LastName = 'Nair', Department = 'Operations'),
+            new Contact(AccountId = acct.Id, LastName = 'Tanaka', Department = 'Operations'),
+            new Contact(AccountId = acct.Id, LastName = 'Rivera', Department = 'Technology'),
+            new Contact(AccountId = acct.Id, LastName = 'Abbott', Department = 'Technology')
+        };
+        Opportunity opp = new Opportunity(AccountId = acct.Id, Name = 'Deal B', StageName = 'Prospecting', CloseDate = Date.today(), Amount = 3000);
+        insert opp;
+
+        Map<String, Object> body = new Map<String, Object>{
+            'conditions' => new List<Object>{
+                new Map<String, Object>{ 'name' => 'NotLogistics', 'rule' => new Map<String, Object>{ 'conditions' => new List<Object>{ cond('Account.Industry', 'ne', 'Logistics') } } }
+            },
+            'calculations' => new List<Object>{
+                new Map<String, Object>{ 'name' => 'OpsCount', 'type' => 'count', 'source' => 'Account.Contacts', 'filter' => new Map<String, Object>{ 'conditions' => new List<Object>{ cond('Department', 'eq', 'Operations') } } },
+                new Map<String, Object>{ 'name' => 'TechCount', 'type' => 'count', 'source' => 'Account.Contacts', 'filter' => new Map<String, Object>{ 'conditions' => new List<Object>{ cond('Department', 'eq', 'Technology') } } }
+            },
+            'blocks' => new List<Object>{
+                textBlock('a', 'City: {{#if Account.BillingCity}}{{Account.BillingCity}}, {{/if}}Done {{#if cond:NotLogistics}}NOT-LOG{{else}}IS-LOG{{/if}} {{#if not Account.Phone}}NO-PHONE{{/if}}', null),
+                textBlock('b', '{{#if Name}}A{{#if Account.Phone}}B{{else}}C{{/if}}D{{/if}}', null),
+                textBlock('left', 'LEFT-CELL', new Map<String, Object>{ 'span' => 50 }),
+                textBlock('right', 'RIGHT-CELL', new Map<String, Object>{ 'span' => 50, 'beside' => true }),
+                textBlock('third', 'THIRD-CELL', new Map<String, Object>{ 'span' => 33 }),
+                textBlock('rich', '<p>{{#if Account.Phone}}<b>PHONE</b>{{else}}<i>NO-PHONE-RICH</i>{{/if}}</p>', new Map<String, Object>{ 'rich' => true }),
+                contactTable('ops', 'Operations', 'DESC', 'OpsCount'),
+                contactTable('tech', 'Technology', 'ASC', 'TechCount')
+            }
+        };
+        Id templateId = DocBuilderSamples.createTemplate('Layout', 'Opportunity', null, JSON.serialize(body));
+        DocBuilder.Request req = new DocBuilder.Request();
+        req.templateId = templateId;
+        req.recordId = opp.Id;
+        DocBuilder.Result res = DocBuilder.generate(req);
+        System.assert(res.success, res.errorMessage);
+        String html = fileText(res.contentVersionId);
+
+        System.assert(html.contains('City: Done IS-LOG NO-PHONE'), html);
+        System.assert(html.contains('>ACD<'), 'Nested sections with an else');
+        System.assert(html.contains('<i>NO-PHONE-RICH</i>') && !html.contains('PHONE</b>'), 'Sections work in rich text');
+        System.assert(html.contains('<td class="col" style="width:50%"><p>LEFT-CELL</p></td><td class="col" style="width:50%"><p>RIGHT-CELL</p></td>'), html);
+        System.assert(html.contains('<td class="col" style="width:33%"><p>THIRD-CELL</p></td><td class="col" style="width:67%"></td>'), 'A narrow block on its own keeps its width');
+
+        Integer tanaka = html.indexOf('Tanaka');
+        Integer nair = html.indexOf('Nair');
+        Integer abbott = html.indexOf('Abbott');
+        Integer rivera = html.indexOf('Rivera');
+        System.assert(tanaka < nair, 'First table: Operations only, descending');
+        System.assert(nair < abbott && abbott < rivera, 'Second table: Technology only, ascending, after the first');
+        System.assertEquals(1, html.countMatches('Tanaka'), 'Each person appears only in their own table');
+        System.assert(html.contains('Operations people 2</td>') && html.contains('Technology people 2</td>'), 'Each table has its own filtered total');
+
+        Map<String, Object> snapshot = (Map<String, Object>) JSON.deserializeUntyped([SELECT Snapshot_JSON__c FROM GeneratedDocument__c WHERE Id = :res.documentId].Snapshot_JSON__c);
+        System.assert(((Map<String, Object>) snapshot.get('logic')).containsKey('cond:NotLogistics'), 'Named conditions are kept in the audit snapshot');
+        System.assert(((Map<String, Object>) snapshot.get('values')).containsKey('Account.BillingCity'), 'Fields tested in text are kept in the audit snapshot');
+
+        // Mistakes in sections fail with a plain explanation.
+        Map<String, String> broken = new Map<String, String>{
+            '{{#if Name}}open' => 'without a matching {{/if}}',
+            'close{{/if}}' => 'without a matching {{#if}}',
+            'x{{else}}y' => 'outside an {{#if}}',
+            '{{#if cond:Missing}}x{{/if}}' => 'not defined'
+        };
+        for (String text : broken.keySet()) {
+            Id badId = DocBuilderSamples.createTemplate('Bad ' + text.length(), 'Opportunity', null, JSON.serialize(new Map<String, Object>{ 'blocks' => new List<Object>{ textBlock('x', text, null) } }));
+            req.templateId = badId;
+            DocBuilder.Result failed = DocBuilder.generate(req);
+            System.assertEquals(false, failed.success, text);
+            System.assert(failed.errorMessage.contains(broken.get(text)), failed.errorMessage);
+        }
     }
 
     @IsTest

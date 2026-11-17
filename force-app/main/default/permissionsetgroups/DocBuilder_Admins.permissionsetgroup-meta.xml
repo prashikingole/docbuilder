@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSetGroup xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Template Designer, every generated document and signature request, emailing, bulk generation and sending for signature.</description>
+    <label>DocBuilder Admins</label>
+    <permissionSets>DocBuilder_Admin</permissionSets>
+    <permissionSets>DocBuilder_ESignature_Access</permissionSets>
+    <status>Updated</status>
+</PermissionSetGroup>

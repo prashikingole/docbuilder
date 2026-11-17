@@ -5,8 +5,9 @@
     <enableHistory>false</enableHistory>
     <enableReports>true</enableReports>
     <enableSearch>true</enableSearch>
+    <externalSharingModel>Private</externalSharingModel>
     <label>Generated Document</label>
     <pluralLabel>Generated Documents</pluralLabel>
     <nameField><displayFormat>DOC-{000000}</displayFormat><label>Document Ref</label><type>AutoNumber</type></nameField>
-    <sharingModel>ReadWrite</sharingModel>
+    <sharingModel>Private</sharingModel>
 </CustomObject>

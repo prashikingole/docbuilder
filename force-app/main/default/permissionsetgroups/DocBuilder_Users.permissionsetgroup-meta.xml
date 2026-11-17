@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSetGroup xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Generate documents from active templates and send them for signature. Add DocBuilder Email Sender or DocBuilder Bulk Runner separately for people who should also email or bulk generate.</description>
+    <label>DocBuilder Users</label>
+    <permissionSets>DocBuilder_User</permissionSets>
+    <permissionSets>DocBuilder_ESignature_Access</permissionSets>
+    <status>Updated</status>
+</PermissionSetGroup>

@@ -48,6 +48,11 @@ global with sharing class DocBuilder {
         global String fileName;
         @AuraEnabled
         global String emailStatus;
+        /** The template's signature request subject and message, with fields filled in for this record. */
+        @AuraEnabled
+        global String signSubject;
+        @AuraEnabled
+        global String signMessage;
         @AuraEnabled
         global String errorMessage;
         /** The signers defined on the template, resolved for this record. */
@@ -75,9 +80,13 @@ global with sharing class DocBuilder {
         if (String.isBlank(templateName) || recordIds == null || recordIds.isEmpty()) {
             throw new DocBuilderException('A template name and at least one record ID are required.');
         }
-        List<DocTemplate__c> templates = [SELECT Id FROM DocTemplate__c WHERE Name = :templateName ORDER BY CreatedDate DESC LIMIT 1];
+        DocBuilderPolicy.checkBulk(recordIds.size());
+        List<DocTemplate__c> templates = [SELECT Id FROM DocTemplate__c WHERE Name = :templateName WITH USER_MODE ORDER BY CreatedDate DESC LIMIT 1];
+        if (templates.isEmpty()) {
+            throw new DocBuilderException('No template named "' + templateName + '" is available to you.');
+        }
         DocGenJob__c job = new DocGenJob__c(
-            Template__c = templates.isEmpty() ? null : templates[0].Id,
+            Template__c = templates[0].Id,
             Template_Name__c = templateName.left(80),
             Total__c = recordIds.size(),
             Succeeded__c = 0,
@@ -85,7 +94,7 @@ global with sharing class DocBuilder {
             Status__c = 'Queued',
             Started_On__c = System.now()
         );
-        insert job;
+        DocBuilderStore.insertRecord(job);
         System.enqueueJob(new DocBuilderBulkJob(job.Id, templateName, recordIds, 0));
         return job.Id;
     }

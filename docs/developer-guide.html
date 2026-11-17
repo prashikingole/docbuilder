@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DocBuilder Developer Guide</title>
+<style>
+:root {
+  --bg: #f6f6f7; --paper: #ffffff; --ink: #16181d; --ink-2: #3a3d46; --muted: #5f6370;
+  --line: #e2e3e8; --accent: #2f5bff; --accent-ink: #1b3acc; --tint: #e9eeff;
+  --code-bg: #f1f2f5; --warn: #8a4205; --warn-bg: #fff4e5; --good: #17553a; --good-bg: #e6f3ec;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111317; --paper: #181b21; --ink: #eceef3; --ink-2: #c9ccd4; --muted: #9a9fab; --line: #2b2f38;
+    --accent: #8ea6ff; --accent-ink: #b7c6ff; --tint: #1f2740; --code-bg: #20242c; --warn: #f3b46b; --warn-bg: #2d2214;
+    --good: #7fd1a6; --good-bg: #15291f; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.top { background: var(--paper); border-bottom: 1px solid var(--line); }
+.top-inner { max-width: 1120px; margin: 0 auto; padding: 14px max(16px, env(safe-area-inset-left)); display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; justify-content: space-between; }
+.brand { font-weight: 800; letter-spacing: -0.01em; }
+.guides { display: flex; flex-wrap: wrap; gap: 4px; }
+.guides a { color: var(--ink-2); text-decoration: none; padding: 6px 12px; border-radius: 999px; font-size: 14px; }
+.guides a[aria-current="page"] { background: var(--ink); color: var(--paper); font-weight: 600; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 32px max(16px, env(safe-area-inset-left)) 64px; display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 40px; }
+nav.toc { position: sticky; top: 16px; align-self: start; font-size: 14px; }
+nav.toc p { margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+nav.toc ol { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+nav.toc a { color: var(--ink-2); text-decoration: none; }
+nav.toc a:hover { color: var(--accent-ink); }
+main { min-width: 0; }
+.hero { margin-bottom: 32px; }
+.hero h1 { margin: 0 0 8px; font-size: 36px; line-height: 1.15; letter-spacing: -0.02em; text-wrap: balance; }
+.hero p { margin: 0; color: var(--ink-2); max-width: 65ch; font-size: 18px; }
+section { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 24px 28px; margin-bottom: 20px; }
+h2 { margin: 0 0 12px; font-size: 22px; letter-spacing: -0.01em; }
+h3 { margin: 22px 0 8px; font-size: 17px; }
+p, li { max-width: 72ch; }
+ol, ul { padding-left: 22px; }
+li { margin: 4px 0; }
+code, kbd { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 0.9em; background: var(--code-bg); padding: 1px 6px; border-radius: 5px; }
+pre { background: var(--code-bg); padding: 14px 16px; border-radius: 10px; overflow-x: auto; font-size: 14px; line-height: 1.5; }
+pre code { background: none; padding: 0; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 13px; color: var(--muted); font-weight: 700; }
+.note, .tip { border-radius: 10px; padding: 12px 16px; margin: 14px 0; }
+.note { background: var(--warn-bg); color: var(--warn); }
+.tip { background: var(--good-bg); color: var(--good); }
+.ui { font-weight: 600; }
+a { color: var(--accent-ink); }
+@media (max-width: 820px) { .wrap { grid-template-columns: 1fr; } nav.toc { position: static; } section { padding: 18px; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <span class="brand">DocBuilder</span>
+    <nav class="guides" aria-label="Guides">
+      <a href="user-guide.html">User guide</a>
+      <a href="admin-guide.html">Admin guide</a>
+      <a href="developer-guide.html" aria-current="page">Developer guide</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#architecture">Architecture</a></li>
+      <li><a href="#objects">Data model</a></li>
+      <li><a href="#schema">Template JSON</a></li>
+      <li><a href="#apex">Apex API</a></li>
+      <li><a href="#flow">Flow actions</a></li>
+      <li><a href="#providers">Custom e-signature providers</a></li>
+      <li><a href="#webhooks">Notifications</a></li>
+      <li><a href="#ui">Components</a></li>
+      <li><a href="#security">Security design</a></li>
+      <li><a href="#testing">Testing and deployment</a></li>
+      <li><a href="#limits">Limits</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <div class="hero">
+      <h1>DocBuilder developer guide</h1>
+      <p>How DocBuilder is built, the template format, and how to call it from Apex and Flow or connect your own e-signature service.</p>
+    </div>
+
+    <section id="architecture">
+      <h2>Architecture</h2>
+      <p>One engine serves every entry point: the record button, Flow, Apex and bulk runs.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Class</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><code>DocBuilder</code></td><td>Global API: <code>generate</code>, <code>generateInBackground</code>, Request and Result.</td></tr>
+          <tr><td><code>DocBuilderEngine</code></td><td>Loads templates, renders, converts to PDF, saves the file and audit records, sends email.</td></tr>
+          <tr><td><code>DocBuilderContext</code></td><td>Builds and runs the user-mode query, resolves fields, evaluates rules, sections, calculations and signers, and records the snapshot.</td></tr>
+          <tr><td><code>DocBuilderRenderer</code></td><td>Turns blocks into HTML for <code>Blob.toPdf</code> (CSS 2.1, tables, paged media).</td></tr>
+          <tr><td><code>DocBuilderPrepare</code></td><td>Expands clause-library categories and applies translations before rendering.</td></tr>
+          <tr><td><code>DocBuilderStore</code></td><td>System-mode reads and writes of DocBuilder's own records (audit, deliveries, jobs, signature status).</td></tr>
+          <tr><td><code>DocBuilderPolicy</code></td><td>Email and bulk permissions and limits.</td></tr>
+          <tr><td><code>DocBuilderSign</code></td><td>Global e-signature API, provider registry, status collection and saving.</td></tr>
+          <tr><td><code>DocBuilderSignDocuSign</code>, <code>…Adobe</code>, <code>…Dropbox</code>, <code>…Mock</code></td><td>Built-in providers.</td></tr>
+          <tr><td><code>DocBuilderSignJob</code>, <code>DocBuilderSignSyncJob</code>, <code>DocBuilderSignSync</code></td><td>Background send, status checks, and the 15-minute schedule.</td></tr>
+          <tr><td><code>DocBuilderSignWebhookEndpoint</code>, <code>DocBuilderSignNotices</code></td><td>Public notification address and its platform event handler.</td></tr>
+          <tr><td><code>DocBuilderController</code>, <code>DocBuilderDesignerController</code></td><td>Server side of the Generate dialog and the Template Designer.</td></tr>
+          <tr><td><code>DocBuilderFlowAction</code>, <code>DocBuilderSignFlowAction</code></td><td>Invocable actions.</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="objects">
+      <h2>Data model</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Object</th><th>Holds</th><th>Sharing</th></tr></thead>
+        <tbody>
+          <tr><td><code>DocTemplate__c</code></td><td>Name, Base_Object__c, Status__c, Active_Version__c, File_Name_Pattern__c, Languages__c, Default_Language__c</td><td>Read only</td></tr>
+          <tr><td><code>DocTemplateVersion__c</code></td><td>Body_JSON__c (the template), Version_Number__c, Status__c (Draft, Active, Archived)</td><td>From template</td></tr>
+          <tr><td><code>DocClause__c</code></td><td>Clause library: Category__c, Text__c, Rule_JSON__c, Sort_Order__c, Locked__c, Active__c</td><td>Read only</td></tr>
+          <tr><td><code>DocTranslation__c</code></td><td>Language__c, Block_Id__c, Part__c, Source_Text__c, Translated_Text__c; linked to a version or a clause</td><td>Read only</td></tr>
+          <tr><td><code>GeneratedDocument__c</code></td><td>Audit: template version, record, file IDs, status, channel, language, draft, Snapshot_JSON__c, Error_Message__c, Error_Detail__c</td><td>Private</td></tr>
+          <tr><td><code>DocDelivery__c</code></td><td>Delivery log per document: File or Email, recipient, status</td><td>From document</td></tr>
+          <tr><td><code>DocGenJob__c</code></td><td>Bulk run progress</td><td>Private</td></tr>
+          <tr><td><code>DocSignRequest__c</code>, <code>DocSigner__c</code></td><td>Signature request and its signers</td><td>Private / from request</td></tr>
+          <tr><td><code>DocSignProvider__mdt</code></td><td>Provider registry</td><td>Metadata</td></tr>
+          <tr><td><code>DocSignSecret__c</code></td><td>List custom setting: webhook secret per provider</td><td>Setting</td></tr>
+          <tr><td><code>DocBuilderSettings__c</code></td><td>Hierarchy custom setting: email and bulk limits</td><td>Setting</td></tr>
+          <tr><td><code>DocSignNotice__e</code></td><td>Platform event raised by the webhook</td><td>Event</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="schema">
+      <h2>Template JSON</h2>
+      <p><code>DocTemplateVersion__c.Body_JSON__c</code> holds the whole template. The designer writes it; you can also create it in code.</p>
+<pre><code>{
+  "page": {
+    "size": "A4 | Letter | Legal",
+    "orientation": "portrait | landscape",
+    "margin": "narrow | normal | wide",
+    "header": { "text": "…", "logoId": "&lt;ContentVersion Id&gt;", "logoWidth": 120 },
+    "footer": { "text": "…", "pageNumbers": true },
+    "watermark": { "text": "CONFIDENTIAL", "showIf": RULE }
+  },
+  "blocks": [ BLOCK, … ],
+  "calculations": [
+    { "name": "Subtotal", "type": "count | sum | avg | min | max", "source": "QuoteLineItems",
+      "field": "TotalPrice", "filter": RULE, "format": "currency" },
+    { "name": "Net", "type": "formula", "expression": "calc:Subtotal * 0.9" }
+  ],
+  "conditions": [ { "name": "CityOk", "rule": RULE } ],
+  "signers": [
+    { "role": "Company", "name": "{{Owner.Name}}", "email": "{{Owner.Email}}" },
+    { "role": "Customer", "source": "OpportunityContactRoles",
+      "nameField": "Contact.Name", "emailField": "Contact.Email", "filter": RULE }
+  ],
+  "messages": { "emailSubject": "…", "emailBody": "…", "signSubject": "…", "signMessage": "…" }
+}</code></pre>
+      <h3>Blocks</h3>
+      <p>Every block has <code>id</code>, <code>type</code>, and optionally <code>showIf</code> (RULE), <code>elseText</code>, <code>span</code> (width in percent, 10 to 100), <code>beside</code> (true joins the row above) and <code>align</code> (center, right).</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>type</th><th>Properties</th></tr></thead>
+        <tbody>
+          <tr><td><code>heading</code></td><td><code>text</code>, <code>level</code> 1–3</td></tr>
+          <tr><td><code>text</code></td><td><code>text</code>, <code>rich</code> (true for HTML text)</td></tr>
+          <tr><td><code>table</code></td><td><code>source</code>, <code>columns</code> [{header, field, align, format}], <code>rowFilter</code>, <code>orderBy</code>, <code>orderDirection</code>, <code>totals</code> [{label, calc, format}], <code>hideWhenEmpty</code></td></tr>
+          <tr><td><code>image</code></td><td><code>contentVersionId</code>, <code>width</code> (pixels)</td></tr>
+          <tr><td><code>terms</code></td><td><code>title</code>, <code>items</code> [{id, text, showIf}], <code>clauseCategory</code></td></tr>
+          <tr><td><code>signature</code></td><td><code>showDate</code>, <code>showName</code></td></tr>
+          <tr><td><code>pagebreak</code></td><td>none</td></tr>
+        </tbody>
+      </table></div>
+      <h3>Rules</h3>
+<pre><code>RULE = {
+  "logic": "AND | OR | 1 AND (2 OR NOT 3)",
+  "conditions": [ { "field": "Amount", "op": "gt", "value": "10000" }, … ]
+}
+op: eq, ne, gt, ge, lt, le, contains, blank, notBlank</code></pre>
+      <p>A condition's <code>field</code> can be a path on the record, a related record (<code>Account.Industry</code>), or <code>calc:Name</code>. In a table's <code>rowFilter</code> or a calculation's <code>filter</code>, paths are on the row.</p>
+      <h3>Formulas</h3>
+      <p>Grammar: numbers, field paths, <code>calc:Name</code> (defined earlier in the list), <code>+ - * /</code>, brackets, comparisons <code>= == != &lt;&gt; &lt; &lt;= &gt; &gt;=</code> (1 when true, 0 when false), and the functions ROUND(x[, places]), ABS, CEILING, FLOOR, MIN(…), MAX(…), IF(test, then, else), AND(…), OR(…), NOT(x). Empty fields count as 0; division by zero gives 0.</p>
+      <h3>Table totals</h3>
+      <p>A table total whose calculation is a count, sum, avg, min or max over the table's own <code>source</code> is computed again over the rows the table shows (after <code>rowFilter</code>, intersected with the calculation's own <code>filter</code>). Formulas and totals over other lists print their document-wide value.</p>
+      <h3>Conditions the designer creates</h3>
+      <p><code>conditions</code> entries with <code>"auto": true</code> belong to one conditional part of a text. The designer names them PartN and drops them when no text refers to them; the engine treats them like any named condition.</p>
+      <h3>Text syntax</h3>
+      <p>Tokens: <code>{{Path}}</code>, <code>{{Path|format}}</code>, <code>{{calc:Name}}</code>. Sections: <code>{{#if Path}}</code>, <code>{{#if not Path}}</code>, <code>{{#if cond:Name}}</code>, <code>{{else}}</code>, <code>{{/if}}</code>; they nest. A leading object name equal to the template's base object is ignored, so <code>{{Quote.Name}}</code> on a Quote template means <code>{{Name}}</code>.</p>
+    </section>
+
+    <section id="apex">
+      <h2>Apex API</h2>
+      <h3>Generate</h3>
+<pre><code>DocBuilder.Request req = new DocBuilder.Request();
+req.templateName = 'Sales Quote';        // or templateId
+req.additionalTemplateIds = otherIds;    // optional: combined into one PDF
+req.recordId = quoteId;
+req.language = 'fr';                     // optional
+req.draft = false;
+req.saveToRecord = true;                 // attach to the record's Files
+req.emailTo = new List&lt;String&gt;{ 'a@example.com' };   // optional; needs DocBuilder_Send_Email
+req.emailSubject = null;                 // blank uses the template's wording
+
+DocBuilder.Result res = DocBuilder.generate(req);
+// res.success, res.documentId, res.contentVersionId, res.contentDocumentId,
+// res.fileName, res.emailStatus, res.errorMessage, res.signers,
+// res.signSubject, res.signMessage</code></pre>
+      <p>A failed run never throws: it returns <code>success = false</code> and still creates a <code>GeneratedDocument__c</code> with the error.</p>
+      <h3>Bulk</h3>
+<pre><code>Id jobId = DocBuilder.generateInBackground('Sales Quote', recordIds);
+// Needs DocBuilder_Bulk_Generate; capped by Max Bulk Records (default 2000).</code></pre>
+      <h3>E-signature</h3>
+<pre><code>DocBuilderSign.SendRequest send = new DocBuilderSign.SendRequest();
+send.templateId = templateId;
+send.recordId = opportunityId;
+send.providerName = 'DropboxSign';
+send.signers = null;    // optional override, same order as the template's signers
+send.subject = null;    // blank uses the template's wording
+Id requestId = DocBuilderSign.send(send);
+
+DocBuilderSign.refresh(requestId);           // check status now
+DocBuilderSign.cancel(requestId, 'Reason');  // withdraw
+String msg = DocBuilderSign.testConnection('DropboxSign');</code></pre>
+    </section>
+
+    <section id="flow">
+      <h2>Flow actions</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Action</th><th>Inputs</th><th>Outputs</th></tr></thead>
+        <tbody>
+          <tr><td>Generate Document</td><td>Template Name, Record ID, Save to Files on the Record, Email To, Email Subject, Email Body</td><td>Succeeded, Document Record ID, File ID, File Name, Error Message</td></tr>
+          <tr><td>Send Document for Signature</td><td>Template Name, Record ID, Signature Provider, Language, Subject, Message, Signer Emails</td><td>Succeeded, Signature Request ID, Error Message</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="providers">
+      <h2>Custom e-signature providers</h2>
+      <p>Implement <code>DocBuilderSignProvider</code>, then add a <code>DocSignProvider__mdt</code> row naming the class and a Named Credential. Nothing else changes.</p>
+<pre><code>global with sharing class AcmeSignProvider implements DocBuilderSignProvider, DocBuilderSignCheck {
+    // Text the service looks for to place a field. fieldType: signature, date, name, initials.
+    global String marker(Integer signerNumber, String fieldType) {
+        return '[[' + fieldType + '_' + signerNumber + ']]';
+    }
+    global DocBuilderSign.SendResult send(DocBuilderSign.Envelope envelope) {
+        Map&lt;String, Object&gt; payload = new Map&lt;String, Object&gt;{
+            'title' =&gt; envelope.subject,
+            'file' =&gt; EncodingUtil.base64Encode(envelope.file),
+            'signers' =&gt; envelope.signers
+        };
+        HttpResponse response = DocBuilderSignHttp.callJson(envelope.config, 'POST', '/v1/requests', payload);
+        DocBuilderSign.SendResult result = new DocBuilderSign.SendResult();
+        result.externalId = (String) DocBuilderSignHttp.parse(response).get('id');
+        return result;
+    }
+    global DocBuilderSign.StatusResult getStatus(DocBuilderSign.ProviderConfig config, String externalId) {
+        Map&lt;String, Object&gt; answer = DocBuilderSignHttp.parse(
+            DocBuilderSignHttp.call(config, 'GET', '/v1/requests/' + DocBuilderSignHttp.pathId(externalId), null, null));
+        DocBuilderSign.StatusResult result = new DocBuilderSign.StatusResult();
+        result.status = answer.get('state') == 'done' ? 'Completed' : 'Sent';  // Sent, Completed, Declined, Voided
+        return result;
+    }
+    global Blob download(DocBuilderSign.ProviderConfig config, String externalId) {
+        return DocBuilderSignHttp.call(config, 'GET', '/v1/requests/' + DocBuilderSignHttp.pathId(externalId) + '/file', null, null).getBodyAsBlob();
+    }
+    global void cancel(DocBuilderSign.ProviderConfig config, String externalId, String reason) {
+        DocBuilderSignHttp.call(config, 'DELETE', '/v1/requests/' + DocBuilderSignHttp.pathId(externalId), null, null);
+    }
+    global String check(DocBuilderSign.ProviderConfig config) {
+        DocBuilderSignHttp.call(config, 'GET', '/v1/me', null, null);
+        return 'Connected to Acme Sign.';
+    }
+}</code></pre>
+      <ul>
+        <li><code>config.settings</code> is the row's Settings JSON, parsed.</li>
+        <li><code>DocBuilderSignHttp</code> calls through the Named Credential and throws <code>ProviderException</code> on any non-2xx answer: a user-safe message, with the service's response in <code>detail</code> for admins.</li>
+        <li>Always pass references through <code>DocBuilderSignHttp.pathId</code> before putting them in a URL.</li>
+        <li><code>getStatus</code> may report each signer in <code>result.signers</code>; if not, all are marked Signed on completion. <code>download</code> may return null to keep the sent copy.</li>
+        <li>Optional interfaces: <code>DocBuilderSignWebhook</code> (instant notifications) and <code>DocBuilderSignCheck</code> (Test connection).</li>
+        <li>Setting the row's Custom Screen Flow replaces the signing screen. The flow receives <code>recordId</code>, <code>templateId</code> and <code>providerName</code>, and can use the Send Document for Signature action.</li>
+      </ul>
+    </section>
+
+    <section id="webhooks">
+      <h2>Notifications</h2>
+      <p><code>/services/apexrest/docbuilder/sign/&lt;ProviderName&gt;?token=&lt;secret&gt;</code> runs as the Site guest user. It checks the secret from <code>DocSignSecret__c</code> with a timing-safe comparison, asks the provider's <code>DocBuilderSignWebhook.externalIdOf</code> which request changed, and publishes <code>DocSignNotice__e</code>. Every rejection returns the same empty 401. The trigger <code>DocSignNoticeTrigger</code> runs outside the guest context and queues <code>DocBuilderSignSyncJob</code>, which fetches the real status from the provider. Nothing in a notification changes a record directly.</p>
+      <p>To give the handler access to provider credentials, create a <code>PlatformEventSubscriberConfig</code> for <code>DocSignNoticeTrigger</code> with an integration user.</p>
+    </section>
+
+    <section id="ui">
+      <h2>Components</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Component</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr><td><code>docBuilderGenerateAction</code></td><td>Headless record action; opens <code>docBuilderGenerateModal</code> (LightningModal, size large).</td></tr>
+          <tr><td><code>docBuilderGenerate</code></td><td>The Generate dialog's content; fires <code>close</code> when done.</td></tr>
+          <tr><td><code>docBuilderSignSend</code>, <code>docBuilderSignTracker</code></td><td>Guided steps and signing desk; signature progress (also on the Signature Request record page).</td></tr>
+          <tr><td><code>docBuilderDesigner</code>, <code>docBuilderRule</code></td><td>Template Designer tab; reusable rule editor.</td></tr>
+          <tr><td><code>docBuilderSafeHtml</code></td><td>Renders previews by parsing and allow-listing nodes; no <code>innerHTML</code>.</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="security">
+      <h2>Security design</h2>
+      <ul>
+        <li>Record data is read with <code>AccessLevel.USER_MODE</code>; all user-facing queries use <code>WITH USER_MODE</code> and DML uses <code>as user</code>.</li>
+        <li>DocBuilder's own records are written in system mode only through <code>DocBuilderStore</code>, so users get read-only access and cannot forge the audit trail.</li>
+        <li>Dynamic SOQL uses only paths matching a strict identifier pattern, with bind variables.</li>
+        <li>Rich text is cleaned server-side with a tag and attribute allowlist; previews are cleaned again in the browser.</li>
+        <li>Email and bulk are gated by custom permissions (<code>DocBuilder_Send_Email</code>, <code>DocBuilder_Bulk_Generate</code>) and limits.</li>
+        <li>Unexpected errors show a generic message; detail goes to admin-only <code>Error_Detail__c</code>.</li>
+      </ul>
+    </section>
+
+    <section id="testing">
+      <h2>Testing and deployment</h2>
+      <ul>
+        <li>Test classes: <code>DocBuilderTest</code>, <code>DocBuilderDesignerTest</code>, <code>DocBuilderSignTest</code>, <code>DocBuilderSecurityTest</code>; helpers in <code>DocBuilderTestUtil</code>.</li>
+        <li>The <code>TestProvider</code> row and <code>DocBuilderSignMock</code> exercise signing without a service. In tests, <code>DocBuilderSign.testSettings</code> supplies provider settings and a <code>Unit_Credential</code> Named Credential name for callout mocks.</li>
+        <li><code>Blob.toPdf</code> is unavailable in tests, so tests store the HTML instead.</li>
+      </ul>
+<pre><code>sf project deploy start --source-dir force-app --target-org &lt;alias&gt; \
+  --test-level RunSpecifiedTests --tests DocBuilderTest --tests DocBuilderDesignerTest \
+  --tests DocBuilderSignTest --tests DocBuilderSecurityTest</code></pre>
+      <div class="note">Changing an object's sharing setting and testing it in the same deploy does not work: sharing is recalculated after the deploy. Deploy objects and permission sets first, wait for the recalculation, then deploy code with tests.</div>
+      <p><code>force-app</code> is the package. <code>org-setup</code> holds org-specific items (the Quote action, the Dropbox Sign credential and its access permission set) and is not part of the package.</p>
+    </section>
+
+    <section id="limits">
+      <h2>Limits</h2>
+      <ul>
+        <li>500 rows per related list per document.</li>
+        <li>Snapshots are capped at about 130,000 characters; row data is dropped first if larger.</li>
+        <li>50 signers per request.</li>
+        <li>Status checks handle 10 requests per run; notifications start at most 5 checks of 10 requests per batch.</li>
+        <li>PDF layout is limited to what Salesforce's PDF engine supports: CSS 2.1, tables, no flexbox.</li>
+      </ul>
+    </section>
+  </main>
+</div>
+</body>
+</html>

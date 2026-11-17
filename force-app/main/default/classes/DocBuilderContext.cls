@@ -6,9 +6,12 @@
 public with sharing class DocBuilderContext {
     static final Pattern TOKEN = Pattern.compile('\\{\\{\\s*([^}|]+?)\\s*(?:\\|\\s*([A-Za-z]+)\\s*)?\\}\\}');
     static final Pattern SAFE_PATH = Pattern.compile('^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)*$');
-    static final Pattern EXPR_IDENT = Pattern.compile('calc:[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_.]*');
+    // A name in a formula that is a field: not calc:Name, and not a function such as ROUND( .
+    static final Pattern EXPR_IDENT = Pattern.compile('calc:[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_.]*+(?!\\s*\\()');
     static final Integer CHILD_ROW_LIMIT = 500;
     static final Integer SNAPSHOT_LIMIT = 130000;
+    // Deepest bracket/function nesting a formula or rule logic may use.
+    static final Integer MAX_NESTING = 40;
 
     public String baseObject;
     public Id recordId;
@@ -23,7 +26,6 @@ public with sharing class DocBuilderContext {
     // Lower-cased path -> path as written, so the same field is never selected twice.
     Map<String, String> parentFields = new Map<String, String>{ 'id' => 'Id' };
     Map<String, Map<String, String>> childFields = new Map<String, Map<String, String>>();
-    Map<String, String> childOrder = new Map<String, String>();
     Map<String, String> calcFormats = new Map<String, String>();
     Map<String, Map<String, Schema.SObjectField>> fieldMaps = new Map<String, Map<String, Schema.SObjectField>>();
 
@@ -57,7 +59,13 @@ public with sharing class DocBuilderContext {
 
     public void load() {
         // USER_MODE enforces the running user's object, field and record access.
-        List<SObject> rows = Database.queryWithBinds(buildSoql(), new Map<String, Object>{ 'recordId' => recordId }, AccessLevel.USER_MODE);
+        List<SObject> rows;
+        try {
+            rows = Database.queryWithBinds(buildSoql(), new Map<String, Object>{ 'recordId' => recordId }, AccessLevel.USER_MODE);
+        } catch (QueryException e) {
+            // Names a field from the template, so it is safe and useful to show; nothing internal is included.
+            throw new DocBuilder.DocBuilderException('The template uses a field that does not exist or that you cannot see. ' + e.getMessage());
+        }
         if (rows.isEmpty()) {
             throw new DocBuilder.DocBuilderException('The record could not be found or you do not have access to it.');
         }
@@ -102,11 +110,7 @@ public with sharing class DocBuilderContext {
     String subquery(String key, String relationshipName) {
         Map<String, String> fields = childFields.get(key);
         fields.put('id', 'Id');
-        String sub = '(SELECT ' + String.join(fields.values(), ', ') + ' FROM ' + relationshipName;
-        if (childOrder.containsKey(key)) {
-            sub += ' ORDER BY ' + childOrder.get(key);
-        }
-        return sub + ' LIMIT ' + CHILD_ROW_LIMIT + ')';
+        return '(SELECT ' + String.join(fields.values(), ', ') + ' FROM ' + relationshipName + ' LIMIT ' + CHILD_ROW_LIMIT + ')';
     }
 
     List<SObject> loadParentList(String rel) {
@@ -134,8 +138,22 @@ public with sharing class DocBuilderContext {
             addTokens((String) part.get('text'), null);
             addRule(part.get('showIf'), null);
         }
+        for (String key : MESSAGE_KEYS) {
+            addTokens((String) messages().get(key), null);
+        }
         for (Object s : asList(body.get('signers'))) {
             Map<String, Object> signer = (Map<String, Object>) s;
+            String source = (String) signer.get('source');
+            if (String.isNotBlank(source)) {
+                String rel = safe(source);
+                addField(child(rel), String.isBlank((String) signer.get('nameField')) ? 'Name' : (String) signer.get('nameField'));
+                if (String.isBlank((String) signer.get('emailField'))) {
+                    throw new DocBuilder.DocBuilderException('Signers taken from ' + source + ' need an email field.');
+                }
+                addField(child(rel), (String) signer.get('emailField'));
+                addRule(signer.get('filter'), rel);
+                continue;
+            }
             addTokens((String) signer.get('name'), null);
             addTokens((String) signer.get('email'), null);
         }
@@ -151,10 +169,10 @@ public with sharing class DocBuilderContext {
                     addField(child(rel), (String) ((Map<String, Object>) c).get('field'));
                 }
                 addRule(blk.get('rowFilter'), rel);
+                // Each table sorts its own rows (see sorted), so several tables can show one list in different orders.
                 String orderBy = (String) blk.get('orderBy');
                 if (String.isNotBlank(orderBy)) {
-                    String direction = 'DESC'.equalsIgnoreCase((String) blk.get('orderDirection')) ? ' DESC' : ' ASC';
-                    childOrder.put(rel, safe(orderBy) + direction + ' NULLS LAST');
+                    addField(child(rel), orderBy);
                 }
             } else if (type == 'terms') {
                 addTokens((String) blk.get('title'), null);
@@ -186,6 +204,9 @@ public with sharing class DocBuilderContext {
             }
             addRule(calc.get('filter'), rel);
         }
+        for (Object c : asList(body.get('conditions'))) {
+            addRule(((Map<String, Object>) c).get('rule'), null);
+        }
     }
 
     Map<String, String> child(String rel) {
@@ -204,12 +225,167 @@ public with sharing class DocBuilderContext {
         if (String.isBlank(text)) {
             return;
         }
-        Matcher m = TOKEN.matcher(text);
+        Matcher s = SECTION.matcher(text);
+        while (s.find()) {
+            String target = sectionTarget(s.group(1));
+            if (target != null && !target.startsWith('cond:')) {
+                addField(rel == null ? parentFields : child(rel), target);
+            }
+        }
+        Matcher m = TOKEN.matcher(SECTION.matcher(text).replaceAll(''));
         while (m.find()) {
             String path = m.group(1).trim();
             if (!path.startsWith('calc:')) {
                 addField(rel == null ? parentFields : child(rel), path);
             }
+        }
+    }
+
+    // ---------- Conditions inside text: {{#if Field}} ... {{else}} ... {{/if}} ----------
+
+    static final Pattern SECTION = Pattern.compile('(?i)\\{\\{\\s*(#if\\s+[^}]+?|else|/if)\\s*\\}\\}');
+
+    /** The field or cond:Name a section tests, without any leading "not". Null for else and /if. */
+    static String sectionTarget(String tag) {
+        String t = tag.trim();
+        if (!t.toLowerCase().startsWith('#if')) {
+            return null;
+        }
+        t = t.substring(3).trim();
+        if (t.toLowerCase().startsWith('not ')) {
+            t = t.substring(4).trim();
+        }
+        return t;
+    }
+
+    Map<String, Object> namedRules;
+
+    Map<String, Object> namedRules() {
+        if (namedRules == null) {
+            namedRules = new Map<String, Object>();
+            for (Object c : asList(body.get('conditions'))) {
+                Map<String, Object> condition = (Map<String, Object>) c;
+                if (condition.get('name') != null) {
+                    namedRules.put(String.valueOf(condition.get('name')).trim().toLowerCase(), condition.get('rule'));
+                }
+            }
+        }
+        return namedRules;
+    }
+
+    Boolean sectionShows(String tag, SObject source) {
+        String t = tag.trim().substring(3).trim();
+        Boolean negate = t.toLowerCase().startsWith('not ');
+        String target = sectionTarget(tag);
+        Boolean result;
+        if (target.startsWith('cond:')) {
+            String name = target.substring(5).trim();
+            if (!namedRules().containsKey(name.toLowerCase())) {
+                throw new DocBuilder.DocBuilderException('Condition "' + name + '" is used in text but not defined in the template.');
+            }
+            Object rule = namedRules().get(name.toLowerCase());
+            result = rule == null ? true : passes(rule, record, 'cond:' + name);
+        } else {
+            String path = safe(target);
+            Object value = resolve(source, path);
+            if (source === record) {
+                usedValues.put(path, value);
+            }
+            result = value != null && String.valueOf(value) != '';
+        }
+        return negate ? !result : result;
+    }
+
+    /** Keeps or drops the parts of text wrapped in {{#if}} sections. Sections can be nested and can have an {{else}}. */
+    public String applySections(String text, SObject source) {
+        if (String.isBlank(text) || !text.contains('{{')) {
+            return text;
+        }
+        Matcher m = SECTION.matcher(text);
+        List<Boolean> parentShows = new List<Boolean>();
+        List<Boolean> conditionHolds = new List<Boolean>();
+        List<Boolean> showing = new List<Boolean>();
+        Boolean show = true;
+        String out = '';
+        Integer last = 0;
+        while (m.find()) {
+            if (show) {
+                out += text.substring(last, m.start());
+            }
+            last = m.end();
+            String tag = m.group(1).trim().toLowerCase();
+            if (tag.startsWith('#if')) {
+                Boolean holds = show ? sectionShows(m.group(1), source) : false;
+                parentShows.add(show);
+                conditionHolds.add(holds);
+                show = show && holds;
+                showing.add(show);
+            } else if (tag == 'else') {
+                if (showing.isEmpty()) {
+                    throw new DocBuilder.DocBuilderException('Text has an {{else}} outside an {{#if}}.');
+                }
+                Integer top = showing.size() - 1;
+                show = parentShows[top] && !conditionHolds[top];
+                showing[top] = show;
+            } else {
+                if (showing.isEmpty()) {
+                    throw new DocBuilder.DocBuilderException('Text has an {{/if}} without a matching {{#if}}.');
+                }
+                Integer top = showing.size() - 1;
+                show = parentShows[top];
+                parentShows.remove(top);
+                conditionHolds.remove(top);
+                showing.remove(top);
+            }
+        }
+        if (!showing.isEmpty()) {
+            throw new DocBuilder.DocBuilderException('Text has an {{#if}} without a matching {{/if}}.');
+        }
+        return show ? out + text.substring(last) : out;
+    }
+
+    // ---------- Sorting a table's rows ----------
+
+    /** A copy of the rows sorted by one field, empty values last. Used per table, so each table can have its own order. */
+    public List<SObject> sorted(List<SObject> rows, String path, Boolean descending) {
+        if (String.isBlank(path) || rows.size() < 2) {
+            return rows;
+        }
+        List<SObject> copy = new List<SObject>(rows);
+        copy.sort(new RowOrder(this, safe(path), descending == true));
+        return copy;
+    }
+
+    public class RowOrder implements Comparator<SObject> {
+        DocBuilderContext ctx;
+        String path;
+        Boolean descending;
+
+        public RowOrder(DocBuilderContext ctx, String path, Boolean descending) {
+            this.ctx = ctx;
+            this.path = path;
+            this.descending = descending;
+        }
+
+        public Integer compare(SObject a, SObject b) {
+            Object x = ctx.resolve(a, path);
+            Object y = ctx.resolve(b, path);
+            if (x == null || y == null) {
+                return x == null && y == null ? 0 : (x == null ? 1 : -1);
+            }
+            Integer result;
+            if (x instanceof Date) {
+                result = (Date) x < (Date) y ? -1 : ((Date) x > (Date) y ? 1 : 0);
+            } else if (x instanceof Datetime) {
+                result = (Datetime) x < (Datetime) y ? -1 : ((Datetime) x > (Datetime) y ? 1 : 0);
+            } else if (x instanceof Decimal || x instanceof Integer || x instanceof Long || x instanceof Double) {
+                Decimal dx = Decimal.valueOf(String.valueOf(x));
+                Decimal dy = Decimal.valueOf(String.valueOf(y));
+                result = dx < dy ? -1 : (dx > dy ? 1 : 0);
+            } else {
+                result = String.valueOf(x).toLowerCase().compareTo(String.valueOf(y).toLowerCase());
+            }
+            return descending ? -result : result;
         }
     }
 
@@ -225,49 +401,91 @@ public with sharing class DocBuilderContext {
         }
     }
 
+    // Calculation name -> its definition, for totals that are worked out again per table.
+    Map<String, Map<String, Object>> calcDefs = new Map<String, Map<String, Object>>();
+
     void computeCalcs() {
         for (Object c : asList(body.get('calculations'))) {
             Map<String, Object> calc = (Map<String, Object>) c;
             String name = (String) calc.get('name');
+            calcDefs.put(name, calc);
             String type = calc.get('type') == null ? 'count' : ((String) calc.get('type')).toLowerCase();
-            String field = (String) calc.get('field');
             if (type == 'formula') {
                 calcs.put(name, new ExprParser((String) calc.get('expression'), this).evaluate());
                 continue;
             }
             List<SObject> rows = rowsFor((String) calc.get('source'), calc.get('filter'));
-
-            if (type == 'count') {
-                calcs.put(name, rows.size());
-                continue;
-            }
-            Decimal total = 0;
-            Decimal lowest;
-            Decimal highest;
-            Integer counted = 0;
-            for (SObject row : rows) {
-                Object raw = resolve(row, field);
-                if (raw == null) {
-                    continue;
+            calcs.put(name, aggregate(name, type, (String) calc.get('field'), rows));
+            // With no format chosen, a total of money or percentages prints like the field it adds up.
+            String listName = (String) calc.get('source');
+            List<SObject> all = listName != null && lists.containsKey(listName) ? lists.get(listName) : rows;
+            if (String.isBlank(calcFormats.get(name)) && type != 'count' && calc.get('field') != null && !all.isEmpty()) {
+                Schema.DisplayType fieldType = typeOf(all[0], (String) calc.get('field'));
+                if (fieldType == Schema.DisplayType.CURRENCY) {
+                    calcFormats.put(name, 'currency');
+                } else if (fieldType == Schema.DisplayType.PERCENT) {
+                    calcFormats.put(name, 'percent');
                 }
-                Decimal value = Decimal.valueOf(String.valueOf(raw));
-                total += value;
-                counted++;
-                lowest = lowest == null || value < lowest ? value : lowest;
-                highest = highest == null || value > highest ? value : highest;
-            }
-            if (type == 'sum') {
-                calcs.put(name, total);
-            } else if (type == 'avg') {
-                calcs.put(name, counted == 0 ? 0 : (total / counted).setScale(2, RoundingMode.HALF_UP));
-            } else if (type == 'min') {
-                calcs.put(name, lowest == null ? 0 : lowest);
-            } else if (type == 'max') {
-                calcs.put(name, highest == null ? 0 : highest);
-            } else {
-                throw new DocBuilder.DocBuilderException('Calculation "' + name + '" has an unknown type: ' + type);
             }
         }
+    }
+
+    /** Count, sum, average, lowest or highest of one field over some rows. */
+    Decimal aggregate(String name, String type, String field, List<SObject> rows) {
+        if (type == 'count') {
+            return rows.size();
+        }
+        Decimal total = 0;
+        Decimal lowest;
+        Decimal highest;
+        Integer counted = 0;
+        for (SObject row : rows) {
+            Object raw = resolve(row, field);
+            if (raw == null) {
+                continue;
+            }
+            Decimal value = Decimal.valueOf(String.valueOf(raw));
+            total += value;
+            counted++;
+            lowest = lowest == null || value < lowest ? value : lowest;
+            highest = highest == null || value > highest ? value : highest;
+        }
+        if (type == 'sum') {
+            return total;
+        } else if (type == 'avg') {
+            return counted == 0 ? 0 : (total / counted).setScale(2, RoundingMode.HALF_UP);
+        } else if (type == 'min') {
+            return lowest == null ? 0 : lowest;
+        } else if (type == 'max') {
+            return highest == null ? 0 : highest;
+        }
+        throw new DocBuilder.DocBuilderException('Calculation "' + name + '" has an unknown type: ' + type);
+    }
+
+    /**
+     * A summary row under a table. When the calculated value totals the same list the table shows, it is
+     * worked out over the rows the table actually shows (after its row filter), so a filtered table never
+     * shows the total of rows it left out. Other calculated values print as they are.
+     */
+    public String formatTableTotal(String name, String format, String tableSource, List<SObject> shownRows) {
+        Map<String, Object> calc = calcDefs.get(name);
+        String type = calc == null || calc.get('type') == null ? 'count' : ((String) calc.get('type')).toLowerCase();
+        String source = calc == null ? null : (String) calc.get('source');
+        if (calc == null || type == 'formula' || String.isBlank(source) || String.isBlank(tableSource) || !source.trim().equalsIgnoreCase(tableSource.trim())) {
+            return formatCalc(name, format);
+        }
+        List<SObject> rows = shownRows;
+        if (calc.get('filter') != null) {
+            rows = new List<SObject>();
+            for (SObject row : shownRows) {
+                if (passes(calc.get('filter'), row, null)) {
+                    rows.add(row);
+                }
+            }
+        }
+        Decimal value = aggregate(name, type, (String) calc.get('field'), rows);
+        String chosen = String.isNotBlank(format) ? format : calcFormats.get(name);
+        return applyFormat(value, String.isBlank(chosen) ? 'number' : chosen);
     }
 
     /** Child rows of a relationship, optionally narrowed by a row filter rule. */
@@ -287,20 +505,38 @@ public with sharing class DocBuilderContext {
 
     // ---------- Values and formatting ----------
 
-    public Object resolve(SObject source, String path) {
+    /**
+     * The parts of a field path, read from the given record. A leading object name that is the record's own
+     * type is dropped, so {{Quote.Name}} on a Quote template means the quote's Name, just as SOQL allows.
+     */
+    List<String> partsOf(SObject source, String path) {
         List<String> parts = path.split('\\.');
-        SObject current = source;
-        for (Integer i = 0; i < parts.size() - 1; i++) {
-            if (current == null) {
-                return null;
-            }
-            current = current.getSObject(parts[i]);
+        if (parts.size() > 1 && source != null && parts[0].equalsIgnoreCase(String.valueOf(source.getSObjectType()))) {
+            parts.remove(0);
         }
-        return current == null ? null : current.get(parts[parts.size() - 1]);
+        return parts;
+    }
+
+    public Object resolve(SObject source, String path) {
+        List<String> parts = partsOf(source, path);
+        SObject current = source;
+        try {
+            for (Integer i = 0; i < parts.size() - 1; i++) {
+                if (current == null) {
+                    return null;
+                }
+                current = current.getSObject(parts[i]);
+            }
+            return current == null ? null : current.get(parts[parts.size() - 1]);
+        } catch (SObjectException e) {
+            throw new DocBuilder.DocBuilderException(
+                'The template uses "' + path + '", which is not a field or related record on ' + String.valueOf(source.getSObjectType()) + '. Check the template\'s text and file name.'
+            );
+        }
     }
 
     Schema.DisplayType typeOf(SObject source, String path) {
-        List<String> parts = path.split('\\.');
+        List<String> parts = partsOf(source, path);
         SObject current = source;
         for (Integer i = 0; i < parts.size() - 1; i++) {
             if (current == null) {
@@ -394,6 +630,7 @@ public with sharing class DocBuilderContext {
         if (String.isBlank(text)) {
             return '';
         }
+        text = applySections(text, source);
         Matcher m = TOKEN.matcher(text);
         String out = '';
         Integer last = 0;
@@ -420,7 +657,8 @@ public with sharing class DocBuilderContext {
         if (String.isBlank(html)) {
             return '';
         }
-        String clean = sanitize(html);
+        // Sections are resolved first, so a condition can never leave half a tag behind once cleaned.
+        String clean = sanitize(applySections(html, record));
         Matcher m = TOKEN.matcher(clean);
         String out = '';
         Integer last = 0;
@@ -434,13 +672,103 @@ public with sharing class DocBuilderContext {
         return out + clean.substring(last);
     }
 
+    // ---------- Rich text cleaning (allowlist) ----------
+
+    static final Set<String> RICH_TAGS = new Set<String>{
+        'p', 'br', 'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'ul', 'ol', 'li', 'span', 'div', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'sub', 'sup', 'hr'
+    };
+    static final Set<String> VOID_TAGS = new Set<String>{ 'br', 'hr' };
+    // Elements whose content is never meant to be shown as text; removed together with their content.
+    static final Pattern DROP_WITH_CONTENT = Pattern.compile('(?is)<(script|style|iframe|object|embed|noscript|template|textarea|title|svg|math|select)\\b.*?</\\1\\s*>');
+    static final Pattern TAG = Pattern.compile('<(/?)([a-zA-Z][a-zA-Z0-9]*)([^>]*)>');
+    static final Pattern ATTR = Pattern.compile('([a-zA-Z_:][-a-zA-Z0-9_:.]*)\\s*=\\s*("([^"]*)"|\'([^\']*)\'|([^\\s"\'>]+))');
+    static final Pattern CLASS_OK = Pattern.compile('^\\s*(ql-[a-z0-9-]+\\s*)+$');
+    static final Pattern COLOUR = Pattern.compile('^(#[0-9a-fA-F]{3,8}|rgba?\\(\\s*[0-9]{1,3}%?\\s*,\\s*[0-9]{1,3}%?\\s*,\\s*[0-9]{1,3}%?\\s*(,\\s*[0-9.]{1,4}\\s*)?\\)|[a-zA-Z]{3,20})$');
+    static final Map<String, Pattern> STYLE_OK = new Map<String, Pattern>{
+        'color' => COLOUR,
+        'background-color' => COLOUR,
+        'text-align' => Pattern.compile('^(left|right|center|justify)$'),
+        'font-size' => Pattern.compile('^[0-9]{1,3}(\\.[0-9]{1,2})?(px|pt|em|rem|%)$'),
+        'font-weight' => Pattern.compile('^(normal|bold|[1-9]00)$'),
+        'font-style' => Pattern.compile('^(normal|italic)$'),
+        'font-family' => Pattern.compile('^[a-zA-Z0-9 ,\'-]{1,80}$'),
+        'text-decoration' => Pattern.compile('^(none|underline|line-through)$')
+    };
+
+    /**
+     * Cleans rich text from the template author with an allowlist: only simple formatting tags survive,
+     * each rebuilt with only a class (Quill's own ql- classes) and a few checked style properties.
+     * Everything else is dropped: links, images, event handlers, URLs and anything entity-encoded,
+     * because only plain values can match the allowed patterns. Stray angle brackets become text.
+     */
     public static String sanitize(String html) {
-        String blocked = 'script|style|iframe|object|embed|link|meta|form|input|button';
-        return html.replaceAll('(?is)<(' + blocked + ')\\b[^>]*>.*?</\\1\\s*>', '')
-            .replaceAll('(?is)</?(' + blocked + ')\\b[^>]*>', '')
-            .replaceAll('(?i)\\son[a-z]+\\s*=\\s*("[^"]*"|\'[^\']*\'|[^\\s>]+)', '')
-            .replaceAll('(?i)javascript\\s*:', '')
-            .replaceAll('(?i)<br\\s*>', '<br/>');
+        if (String.isBlank(html)) {
+            return '';
+        }
+        String source = DROP_WITH_CONTENT.matcher(html).replaceAll('');
+        String out = '';
+        Matcher m = TAG.matcher(source);
+        Integer last = 0;
+        while (m.find()) {
+            out += escapeText(source.substring(last, m.start()));
+            last = m.end();
+            String name = m.group(2).toLowerCase();
+            if (!RICH_TAGS.contains(name)) {
+                continue;
+            }
+            if (m.group(1) == '/') {
+                if (!VOID_TAGS.contains(name)) {
+                    out += '</' + name + '>';
+                }
+                continue;
+            }
+            out += '<' + name + safeAttributes(m.group(3)) + (VOID_TAGS.contains(name) ? '/>' : '>');
+        }
+        return out + escapeText(source.substring(last));
+    }
+
+    static String escapeText(String text) {
+        // Keep entity references the editor wrote (&amp; &nbsp; &#39;), escape everything else that could start markup.
+        return text.replaceAll('&(?!(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{1,31});)', '&amp;')
+            .replace('<', '&lt;')
+            .replace('>', '&gt;')
+            .replace('"', '&quot;');
+    }
+
+    static String safeAttributes(String raw) {
+        String out = '';
+        if (String.isBlank(raw)) {
+            return out;
+        }
+        Matcher m = ATTR.matcher(raw);
+        while (m.find()) {
+            String name = m.group(1).toLowerCase();
+            String value = m.group(3) != null ? m.group(3) : (m.group(4) != null ? m.group(4) : m.group(5));
+            if (value == null) {
+                continue;
+            }
+            if (name == 'class' && CLASS_OK.matcher(value).matches()) {
+                out += ' class="' + value.normalizeSpace() + '"';
+            } else if (name == 'style') {
+                String style = safeStyle(value);
+                if (String.isNotBlank(style)) {
+                    out += ' style="' + style + '"';
+                }
+            }
+        }
+        return out;
+    }
+
+    static String safeStyle(String value) {
+        List<String> kept = new List<String>();
+        for (String declaration : value.split(';')) {
+            String property = declaration.substringBefore(':').trim().toLowerCase();
+            String setting = declaration.substringAfter(':').trim();
+            if (STYLE_OK.containsKey(property) && String.isNotBlank(setting) && STYLE_OK.get(property).matcher(setting).matches()) {
+                kept.add(property + ':' + setting);
+            }
+        }
+        return String.join(kept, ';');
     }
 
     // ---------- Signers ----------
@@ -463,15 +791,68 @@ public with sharing class DocBuilderContext {
         Integer position = 0;
         for (Object s : asList(body.get('signers'))) {
             Map<String, Object> definition = (Map<String, Object>) s;
+            String role = definition.get('role') == null ? '' : String.valueOf(definition.get('role')).trim();
+            String source = (String) definition.get('source');
+
+            // Everyone in a related list, for example each Contact Role on an opportunity.
+            if (String.isNotBlank(source)) {
+                for (SObject row : rowsFor(source, definition.get('filter'))) {
+                    if (signers.size() >= MAX_SIGNERS) {
+                        break;
+                    }
+                    Object email = resolve(row, (String) definition.get('emailField'));
+                    if (email == null || String.isBlank(String.valueOf(email))) {
+                        // Someone with no email address cannot sign electronically, so they are left out.
+                        continue;
+                    }
+                    position++;
+                    DocBuilderSign.Signer signer = new DocBuilderSign.Signer();
+                    signer.role = String.isBlank(role) ? 'Signer ' + position : role;
+                    String nameField = String.isBlank((String) definition.get('nameField')) ? 'Name' : (String) definition.get('nameField');
+                    signer.name = formatValue(row, nameField, null);
+                    signer.email = String.valueOf(email).trim();
+                    signer.routingOrder = position;
+                    signers.add(signer);
+                }
+                continue;
+            }
+
+            String name = (String) definition.get('name');
+            String email = (String) definition.get('email');
+            if (String.isBlank(role) && String.isBlank(name) && String.isBlank(email)) {
+                // An empty row left in the designer is not a signer.
+                continue;
+            }
             position++;
             DocBuilderSign.Signer signer = new DocBuilderSign.Signer();
-            signer.role = definition.get('role') == null ? 'Signer ' + position : String.valueOf(definition.get('role'));
-            signer.name = mergeText((String) definition.get('name'), record, false).trim();
-            signer.email = mergeText((String) definition.get('email'), record, false).trim();
+            signer.role = String.isBlank(role) ? 'Signer ' + position : role;
+            signer.name = mergeText(name, record, false).trim();
+            signer.email = mergeText(email, record, false).trim();
             signer.routingOrder = position;
             signers.add(signer);
         }
         return signers;
+    }
+
+    static final Integer MAX_SIGNERS = 50;
+
+    // ---------- Email and signature request wording set on the template ----------
+
+    public static final List<String> MESSAGE_KEYS = new List<String>{ 'emailSubject', 'emailBody', 'signSubject', 'signMessage' };
+
+    Map<String, Object> messages() {
+        Object value = body.get('messages');
+        return value instanceof Map<String, Object> ? (Map<String, Object>) value : new Map<String, Object>();
+    }
+
+    /** One of the template's messages with fields and conditions filled in for this record, or null if it has none. */
+    public String message(String key) {
+        String text = (String) messages().get(key);
+        if (String.isBlank(text) || record == null) {
+            return null;
+        }
+        String merged = mergeText(text, record, false).trim();
+        return String.isBlank(merged) ? null : merged;
     }
 
     // ---------- Page setup ----------
@@ -640,17 +1021,26 @@ public with sharing class DocBuilderContext {
             return value;
         }
 
+        // Nesting depth so far. Capped so a deeply bracketed rule fails cleanly instead of hitting the stack limit.
+        Integer depth = 0;
+
         Boolean factor() {
-            if (pos >= tokens.size()) {
+            if (pos >= tokens.size() || depth >= MAX_NESTING) {
                 ok = false;
+                pos = tokens.size();
                 return false;
             }
             String token = tokens[pos++];
             if (token == 'NOT') {
-                return !factor();
+                depth++;
+                Boolean negated = !factor();
+                depth--;
+                return negated;
             }
             if (token == '(') {
+                depth++;
                 Boolean grouped = orExpr();
+                depth--;
                 if (pos >= tokens.size() || tokens[pos++] != ')') {
                     ok = false;
                 }
@@ -694,6 +1084,8 @@ public with sharing class DocBuilderContext {
      * Operands are numbers, fields on the source record (or its parents) and earlier calculations.
      */
     public class ExprParser {
+        final Set<String> COMPARISONS = new Set<String>{ '=', '==', '!=', '<>', '<', '<=', '>', '>=' };
+        final Set<String> FUNCTIONS = new Set<String>{ 'ROUND', 'ABS', 'CEILING', 'FLOOR', 'MIN', 'MAX', 'IF', 'AND', 'OR', 'NOT' };
         List<String> tokens = new List<String>();
         Integer pos = 0;
         String source;
@@ -702,7 +1094,7 @@ public with sharing class DocBuilderContext {
         public ExprParser(String expression, DocBuilderContext ctx) {
             this.source = expression == null ? '' : expression;
             this.ctx = ctx;
-            String tokenPattern = '\\d+(\\.\\d+)?|calc:[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_.]*|[-+*/()]';
+            String tokenPattern = '\\d+(\\.\\d+)?|calc:[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_.]*|<=|>=|!=|<>|==|[-+*/(),<>=]';
             Matcher m = Pattern.compile(tokenPattern).matcher(source);
             while (m.find()) {
                 tokens.add(m.group());
@@ -717,11 +1109,100 @@ public with sharing class DocBuilderContext {
         }
 
         public Decimal evaluate() {
-            Decimal value = sum();
+            Decimal value = comparison();
             if (pos < tokens.size()) {
                 fail();
             }
             return value;
+        }
+
+        /** a = b, a != b, a < b and so on give 1 when true and 0 when false, for use in IF, AND and OR. */
+        Decimal comparison() {
+            Decimal value = sum();
+            if (pos < tokens.size() && COMPARISONS.contains(tokens[pos])) {
+                String op = tokens[pos++];
+                Decimal other = sum();
+                Boolean holds;
+                if (op == '=' || op == '==') {
+                    holds = value == other;
+                } else if (op == '!=' || op == '<>') {
+                    holds = value != other;
+                } else if (op == '<') {
+                    holds = value < other;
+                } else if (op == '<=') {
+                    holds = value <= other;
+                } else if (op == '>') {
+                    holds = value > other;
+                } else {
+                    holds = value >= other;
+                }
+                value = holds ? 1 : 0;
+            }
+            return value;
+        }
+
+        List<Decimal> arguments() {
+            List<Decimal> args = new List<Decimal>();
+            // The opening bracket has been read.
+            if (pos < tokens.size() && tokens[pos] == ')') {
+                pos++;
+                return args;
+            }
+            Boolean more = true;
+            while (more) {
+                args.add(comparison());
+                if (pos >= tokens.size()) {
+                    fail();
+                }
+                String next = tokens[pos++];
+                if (next == ')') {
+                    more = false;
+                } else if (next != ',') {
+                    fail();
+                }
+            }
+            return args;
+        }
+
+        Decimal call(String name, List<Decimal> args) {
+            String fn = name.toUpperCase();
+            Integer count = args.size();
+            if (fn == 'ROUND' && (count == 1 || count == 2)) {
+                return args[0].setScale(count == 2 ? Math.max(0, Math.min(10, args[1].intValue())) : 0, RoundingMode.HALF_UP);
+            }
+            if (fn == 'ABS' && count == 1) {
+                return args[0].abs();
+            }
+            if (fn == 'CEILING' && count == 1) {
+                return args[0].round(System.RoundingMode.CEILING);
+            }
+            if (fn == 'FLOOR' && count == 1) {
+                return args[0].round(System.RoundingMode.FLOOR);
+            }
+            if ((fn == 'MIN' || fn == 'MAX') && count > 0) {
+                Decimal best = args[0];
+                for (Decimal a : args) {
+                    best = fn == 'MIN' ? (a < best ? a : best) : (a > best ? a : best);
+                }
+                return best;
+            }
+            if (fn == 'IF' && count == 3) {
+                return args[0] != 0 ? args[1] : args[2];
+            }
+            if ((fn == 'AND' || fn == 'OR') && count > 0) {
+                Boolean result = fn == 'AND';
+                for (Decimal a : args) {
+                    result = fn == 'AND' ? result && a != 0 : result || a != 0;
+                }
+                return result ? 1 : 0;
+            }
+            if (fn == 'NOT' && count == 1) {
+                return args[0] == 0 ? 1 : 0;
+            }
+            if (FUNCTIONS.contains(fn)) {
+                throw new DocBuilder.DocBuilderException('Formula function ' + fn + ' has the wrong number of values: ' + source);
+            }
+            throw new DocBuilder.DocBuilderException('Formula uses an unknown function ' + name + ': ' + source);
         }
 
         Decimal sum() {
@@ -748,12 +1229,23 @@ public with sharing class DocBuilderContext {
             return value;
         }
 
+        // Nesting depth so far. Every bracket, function call and leading minus passes through unary(), so capping
+        // it here stops a deeply nested formula from hitting the stack limit, which cannot be caught.
+        Integer depth = 0;
+
         Decimal unary() {
+            if (++depth > MAX_NESTING) {
+                throw new DocBuilder.DocBuilderException('Formula is nested too deeply: ' + source.left(200));
+            }
+            Decimal value;
             if (pos < tokens.size() && tokens[pos] == '-') {
                 pos++;
-                return -unary();
+                value = -unary();
+            } else {
+                value = operand();
             }
-            return operand();
+            depth--;
+            return value;
         }
 
         Decimal operand() {
@@ -762,7 +1254,7 @@ public with sharing class DocBuilderContext {
             }
             String token = tokens[pos++];
             if (token == '(') {
-                Decimal grouped = sum();
+                Decimal grouped = comparison();
                 if (pos >= tokens.size() || tokens[pos++] != ')') {
                     fail();
                 }
@@ -770,6 +1262,13 @@ public with sharing class DocBuilderContext {
             }
             if (token.left(1).isNumeric()) {
                 return Decimal.valueOf(token);
+            }
+            if (pos < tokens.size() && tokens[pos] == '(' && !token.startsWith('calc:')) {
+                pos++;
+                return call(token, arguments());
+            }
+            if (token == ',' || COMPARISONS.contains(token)) {
+                fail();
             }
             if (token.startsWith('calc:')) {
                 String name = token.substring(5);

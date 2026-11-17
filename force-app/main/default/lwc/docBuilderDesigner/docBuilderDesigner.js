@@ -1,3 +1,4 @@
+import { renderSafe } from 'c/docBuilderSafeHtml';
 import { LightningElement } from 'lwc';
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import listTemplates from '@salesforce/apex/DocBuilderDesignerController.listTemplates';
@@ -10,6 +11,9 @@ import previewBody from '@salesforce/apex/DocBuilderDesignerController.preview';
 import checkBody from '@salesforce/apex/DocBuilderDesignerController.check';
 import getTranslations from '@salesforce/apex/DocBuilderDesignerController.getTranslations';
 import saveTranslations from '@salesforce/apex/DocBuilderDesignerController.saveTranslations';
+import listProviders from '@salesforce/apex/DocBuilderDesignerController.listProviders';
+import testProvider from '@salesforce/apex/DocBuilderDesignerController.testProvider';
+import calcValues from '@salesforce/apex/DocBuilderDesignerController.calcValues';
 
 const TOKEN = /\{\{\s*([^}|]+?)\s*(?:\|\s*([A-Za-z]+)\s*)?\}\}/g;
 const TYPE_LABELS = { heading: 'Heading', text: 'Text', table: 'Table', terms: 'Terms', image: 'Image', signature: 'Signature', pagebreak: 'Page break' };
@@ -20,6 +24,25 @@ const PAGE_PADDING = { narrow: '1.5rem', normal: '2.5rem', wide: '3.75rem' };
 const OP_LABELS = { eq: '=', ne: '≠', gt: '>', ge: '≥', lt: '<', le: '≤', contains: 'contains', blank: 'is blank', notBlank: 'is not blank' };
 const NUMERIC_TYPES = ['Currency', 'Double', 'Integer', 'Percent', 'Long'];
 const PICKER_LIMIT = 150;
+const OP_WORDS = { eq: 'is', ne: 'is not', gt: 'is more than', ge: 'is at least', lt: 'is less than', le: 'is at most', contains: 'contains', blank: 'is empty', notBlank: 'has a value' };
+const MAX_ROW = 4;
+const MIN_SPAN = 10;
+// Formula functions, as the server's formula reader understands them.
+const FX_FUNCTIONS = [
+    { name: 'ROUND', hint: 'ROUND(value, places): round to decimal places' },
+    { name: 'IF', hint: 'IF(test, then, else): e.g. IF(Amount > 1000, 0.1, 0)' },
+    { name: 'MIN', hint: 'MIN(a, b, …): the smallest' },
+    { name: 'MAX', hint: 'MAX(a, b, …): the largest' },
+    { name: 'ABS', hint: 'ABS(value): without the minus sign' },
+    { name: 'CEILING', hint: 'CEILING(value): round up' },
+    { name: 'FLOOR', hint: 'FLOOR(value): round down' },
+    { name: 'AND', hint: 'AND(test, test, …): all are true' },
+    { name: 'OR', hint: 'OR(test, test, …): any is true' },
+    { name: 'NOT', hint: 'NOT(test): the opposite' }
+];
+const FX_TOKEN = new RegExp('\\d+(?:\\.\\d+)?|calc:[A-Za-z_][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_.]*|<=|>=|!=|<>|==|[-+*\\/(),<>=]|\\s+|[\\s\\S]', 'g');
+const FX_OPERATOR = new RegExp('^(<=|>=|!=|<>|==|[-+*\\/(),<>=])$');
+const FX_SHOW = { '*': '×', '/': '÷', '-': '−', '<=': '≤', '>=': '≥', '!=': '≠', '<>': '≠', '==': '=' };
 
 export default class DocBuilderDesigner extends LightningElement {
     templates = [];
@@ -109,16 +132,28 @@ export default class DocBuilderDesigner extends LightningElement {
 
     connectedCallback() {
         this.refreshTemplates();
+        this.loadProviders();
     }
 
     renderedCallback() {
         const host = this.template.querySelector('.preview-body');
         if (host && this.renderedPreview !== this.previewHtml) {
-            // The HTML comes from our own renderer, which escapes every data value.
-            // eslint-disable-next-line @lwc/lwc/no-inner-html
-            host.innerHTML = this.previewHtml || '';
+            renderSafe(host, this.previewHtml);
             this.renderedPreview = this.previewHtml;
         }
+        // After a formula suggestion is picked, put the caret back where typing continues.
+        if (this.pendingCaret) {
+            const input = this.template.querySelector(`input.fx-input[data-index="${this.pendingCaret.index}"]`);
+            if (input) {
+                input.focus();
+                input.setSelectionRange(this.pendingCaret.pos, this.pendingCaret.pos);
+            }
+            this.pendingCaret = undefined;
+        }
+    }
+
+    disconnectedCallback() {
+        clearTimeout(this.calcTimer);
     }
 
     // ---------- Helpers ----------
@@ -152,9 +187,22 @@ export default class DocBuilderDesigner extends LightningElement {
     mutate(change) {
         const body = JSON.parse(JSON.stringify(this.body));
         change(body);
+        this.pruneAutoConditions(body);
         this.body = body;
         this.dirty = true;
         this.health = undefined;
+        if (this.settingsPanel === 'calc' && !this.selectedId) {
+            this.scheduleCalcRefresh();
+        }
+    }
+
+    /** Conditions made for one conditional part of a text are removed once no text uses them. */
+    pruneAutoConditions(body) {
+        if (!Array.isArray(body.conditions) || !body.conditions.some((c) => c.auto)) {
+            return;
+        }
+        const others = JSON.stringify({ ...body, conditions: [] });
+        body.conditions = body.conditions.filter((c) => !c.auto || others.includes('cond:' + c.name + '}}'));
     }
 
     blockIn(body) {
@@ -220,6 +268,26 @@ export default class DocBuilderDesigner extends LightningElement {
                 result.push({ key: n++, text: text.substring(last, match.index), cls: 'plain' });
             }
             const path = match[1].trim();
+            const lower = path.toLowerCase();
+            if (lower.startsWith('#if ') || lower === 'else' || lower === '/if') {
+                // Condition markers show as small labels, so the author can see what is conditional.
+                let label = 'end if';
+                if (lower === 'else') {
+                    label = 'otherwise';
+                } else if (lower.startsWith('#if ')) {
+                    let target = path.substring(4).trim();
+                    const negate = target.toLowerCase().startsWith('not ');
+                    if (negate) {
+                        target = target.substring(4).trim();
+                    }
+                    const named = target.startsWith('cond:');
+                    const name = named ? target.substring(5) : target.split('.').join(' › ');
+                    label = 'if ' + name + (named ? '' : negate ? ' is empty' : ' has a value');
+                }
+                result.push({ key: n++, text: label, cls: 'chip chip-if' });
+                last = match.index + match[0].length;
+                continue;
+            }
             const isCalc = path.startsWith('calc:');
             const label = (isCalc ? path.substring(5) : path.split('.').join(' › ')) + (match[2] ? ' · ' + match[2] : '');
             result.push({ key: n++, text: label, cls: isCalc ? 'chip chip-calc' : 'chip' });
@@ -229,6 +297,191 @@ export default class DocBuilderDesigner extends LightningElement {
             result.push({ key: n++, text: text.substring(last), cls: 'plain' });
         }
         return result;
+    }
+
+    // ---------- Conditional parts of a text (numbered badges) ----------
+
+    /**
+     * Splits a text into pieces for the canvas. Each {{#if}} … {{/if}} becomes a numbered conditional part:
+     * its pieces are tinted, a badge with its number follows it, and the key under the block says in plain
+     * words when it prints. Fields outside a part can be clicked to make them conditional.
+     */
+    textView(text, blockId) {
+        const segs = [];
+        const legend = [];
+        if (!text) {
+            return { segs, legend };
+        }
+        const focusNum = this.focusPart && this.focusPart.blockId === blockId && this.focusPart.kind === 'section' ? this.focusPart.num : null;
+        const focusStart = this.focusPart && this.focusPart.blockId === blockId && this.focusPart.kind === 'field' ? this.focusPart.start : null;
+        const re = new RegExp(TOKEN.source, 'g');
+        const stack = [];
+        let num = 0;
+        let last = 0;
+        let n = 0;
+        let m;
+        const top = () => stack[stack.length - 1];
+        const tint = (base) => {
+            const open = top();
+            if (!open) {
+                return base;
+            }
+            return base + (open.inElse ? ' in-else' : ' in-cond') + (stack.some((s) => s.num === focusNum) ? ' part-focus' : '');
+        };
+        const pushText = (s) => {
+            if (s) {
+                segs.push({ key: n++, text: s, cls: tint('plain'), kind: stack.length ? 'section' : '', num: stack.length ? top().num : undefined });
+            }
+        };
+        while ((m = re.exec(text)) !== null) {
+            pushText(text.substring(last, m.index));
+            last = m.index + m[0].length;
+            const path = m[1].trim();
+            const lower = path.toLowerCase();
+            if (lower.startsWith('#if ')) {
+                let target = path.substring(4).trim();
+                const negate = target.toLowerCase().startsWith('not ');
+                if (negate) {
+                    target = target.substring(4).trim();
+                }
+                num++;
+                stack.push({ num, inElse: false });
+                legend.push({ key: 'l' + num, num, label: String(num), text: this.sectionWords(target, negate), cls: 'legend-item' + (num === focusNum ? ' on' : '') });
+            } else if (lower === 'else') {
+                const open = top();
+                if (open) {
+                    segs.push({ key: n++, text: String(open.num), cls: 'cond-badge', kind: 'section', num: open.num });
+                    open.inElse = true;
+                }
+            } else if (lower === '/if') {
+                const open = stack.pop();
+                if (open) {
+                    segs.push({ key: n++, text: open.inElse ? 'otherwise' : String(open.num), cls: open.inElse ? 'cond-badge else' : 'cond-badge', kind: 'section', num: open.num });
+                }
+            } else {
+                const isCalc = path.startsWith('calc:');
+                const label = (isCalc ? path.substring(5) : path.split('.').join(' › ')) + (m[2] ? ' · ' + m[2] : '');
+                const inSection = stack.length > 0;
+                const base = isCalc ? 'chip chip-calc' : 'chip';
+                segs.push({
+                    key: n++,
+                    text: label,
+                    cls: inSection ? tint(base) : base + ' pickable' + (m.index === focusStart ? ' part-focus' : ''),
+                    kind: inSection ? 'section' : 'field',
+                    num: inSection ? top().num : undefined,
+                    start: m.index,
+                    end: last,
+                    path
+                });
+            }
+        }
+        pushText(text.substring(last));
+        return { segs, legend };
+    }
+
+    /** Where one numbered conditional part sits in a text, by character positions. */
+    findSection(text, wanted) {
+        const re = new RegExp(TOKEN.source, 'g');
+        const stack = [];
+        let num = 0;
+        let m;
+        while ((m = re.exec(text || '')) !== null) {
+            const path = m[1].trim();
+            const lower = path.toLowerCase();
+            if (lower.startsWith('#if ')) {
+                let target = path.substring(4).trim();
+                const negate = target.toLowerCase().startsWith('not ');
+                if (negate) {
+                    target = target.substring(4).trim();
+                }
+                num++;
+                stack.push({ num, target, negate, openStart: m.index, openEnd: m.index + m[0].length });
+            } else if (lower === 'else') {
+                const open = stack[stack.length - 1];
+                if (open) {
+                    open.elseStart = m.index;
+                    open.elseEnd = m.index + m[0].length;
+                }
+            } else if (lower === '/if') {
+                const open = stack.pop();
+                if (open && open.num === wanted) {
+                    open.closeStart = m.index;
+                    open.closeEnd = m.index + m[0].length;
+                    open.ifEnd = open.elseStart !== undefined ? open.elseStart : open.closeStart;
+                    open.ifText = text.substring(open.openEnd, open.ifEnd);
+                    open.elseText = open.elseEnd !== undefined ? text.substring(open.elseEnd, open.closeStart) : '';
+                    return open;
+                }
+            }
+        }
+        return null;
+    }
+
+    namedCondition(name) {
+        return (this.body.conditions || []).find((c) => (c.name || '').toLowerCase() === (name || '').toLowerCase());
+    }
+
+    sectionWords(target, negate) {
+        if (target.startsWith('cond:')) {
+            const name = target.substring(5).trim();
+            const condition = this.namedCondition(name);
+            if (!condition) {
+                return `Condition "${name}" does not exist. Click to set when this part prints.`;
+            }
+            const words = this.ruleWords(condition.rule) || 'Always printed: no conditions yet';
+            const text = condition.auto ? words : `${name}: ${words}`;
+            return negate ? 'Not (' + text + ')' : text;
+        }
+        return `${this.fieldLabel(target)} ${negate ? 'is empty' : 'has a value'}`;
+    }
+
+    /** A rule in plain words, e.g. "City has a value and City is not Delhi". */
+    ruleWords(rule) {
+        if (!rule || !Array.isArray(rule.conditions) || !rule.conditions.length) {
+            return '';
+        }
+        const parts = rule.conditions.map((c) => {
+            const op = OP_WORDS[c.op] || c.op;
+            const value = c.op === 'blank' || c.op === 'notBlank' ? '' : ' ' + (c.value === '' || c.value == null ? '(empty)' : c.value);
+            return `${this.fieldLabel(c.field)} ${op}${value}`;
+        });
+        const logic = (rule.logic || '').trim();
+        if (!logic || logic.toUpperCase() === 'AND') {
+            return parts.join(' and ');
+        }
+        if (logic.toUpperCase() === 'OR') {
+            return parts.join(' or ');
+        }
+        return parts.map((p, i) => `(${i + 1}) ${p}`).join(', ') + '. Combined as ' + logic;
+    }
+
+    /** A field path as people read it: labels instead of API names where they are known. */
+    fieldLabel(path) {
+        if (!path) {
+            return '(no field)';
+        }
+        if (path.startsWith('calc:')) {
+            return path.substring(5);
+        }
+        let info = this.tpl ? this.infoFor(this.tpl.baseObject) : null;
+        const parts = path.split('.');
+        const labels = [];
+        for (let i = 0; i < parts.length; i++) {
+            if (!info) {
+                labels.push(parts[i]);
+                continue;
+            }
+            const name = parts[i].toLowerCase();
+            if (i < parts.length - 1) {
+                const lookup = info.fields.find((f) => (f.relationshipName || '').toLowerCase() === name);
+                labels.push(lookup ? lookup.label.replace(/ ID$/, '') : parts[i]);
+                info = lookup ? this.infoFor(lookup.referenceTo) : null;
+            } else {
+                const field = info.fields.find((f) => f.name.toLowerCase() === name);
+                labels.push(field ? field.label : parts[i]);
+            }
+        }
+        return labels.join(' › ');
     }
 
     ruleSummary(rule) {
@@ -295,6 +548,7 @@ export default class DocBuilderDesigner extends LightningElement {
         body.calculations = Array.isArray(body.calculations) ? body.calculations : [];
         body.page = body.page && typeof body.page === 'object' ? body.page : {};
         body.signers = Array.isArray(body.signers) ? body.signers : [];
+        body.conditions = Array.isArray(body.conditions) ? body.conditions : [];
         body.blocks.forEach((b) => {
             b.id = b.id || this.uid();
             (b.items || []).forEach((item) => {
@@ -458,6 +712,9 @@ export default class DocBuilderDesigner extends LightningElement {
         this.handleDeselect();
         this.settingsPanel = event.currentTarget.dataset.panel;
         this.panelTab = 'settings';
+        if (this.settingsPanel === 'calc') {
+            this.refreshCalcValues();
+        }
     }
 
     get isPanelTemplate() {
@@ -476,6 +733,710 @@ export default class DocBuilderDesigner extends LightningElement {
         return this.settingsPanel === 'calc';
     }
 
+    get isPanelMessages() {
+        return this.settingsPanel === 'messages';
+    }
+
+    get messages() {
+        return this.body.messages || {};
+    }
+
+    handleMessage(event) {
+        const key = event.target.dataset.key;
+        const value = event.detail.value;
+        this.mutate((body) => {
+            body.messages = body.messages || {};
+            if (value) {
+                body.messages[key] = value;
+            } else {
+                delete body.messages[key];
+            }
+        });
+    }
+
+    handleMessageFocus(event) {
+        this.focus = { prop: 'msg:' + event.target.dataset.key };
+    }
+
+    // ---------- Signature providers ----------
+
+    providers = [];
+    providerResults = {};
+
+    async loadProviders() {
+        try {
+            this.providers = await listProviders();
+        } catch (e) {
+            this.providers = [];
+        }
+    }
+
+    get providerRows() {
+        return this.providers.map((p) => {
+            const result = this.providerResults[p.name];
+            return {
+                ...p,
+                state: p.active ? 'On' : 'Off',
+                stateCls: p.active ? 'pill-on' : 'pill-off',
+                result: result ? result.message : '',
+                resultCls: result && result.ok ? 'test-ok' : 'test-bad'
+            };
+        });
+    }
+
+    async handleTestProvider(event) {
+        const name = event.currentTarget.dataset.name;
+        this.providerResults = { ...this.providerResults, [name]: { ok: true, message: 'Testing…' } };
+        try {
+            const result = await testProvider({ providerName: name });
+            this.providerResults = { ...this.providerResults, [name]: result };
+        } catch (e) {
+            this.providerResults = { ...this.providerResults, [name]: { ok: false, message: this.messageOf(e) } };
+        }
+    }
+
+    get isPanelConditions() {
+        return this.settingsPanel === 'conditions';
+    }
+
+    // ---------- Conditions inside text ----------
+
+    wrapMode = '';
+
+    get wrapOptions() {
+        return [
+            { label: 'Always print it', value: '' },
+            { label: 'Print it only when it has a value', value: 'filled' }
+        ];
+    }
+
+    handleWrapMode(event) {
+        this.wrapMode = event.detail.value;
+    }
+
+    get ifExample() {
+        return '{{#if Field}} … {{else}} … {{/if}}';
+    }
+
+    get condExample() {
+        return '{{#if cond:Name}}';
+    }
+
+    get endIfExample() {
+        return '{{/if}}';
+    }
+
+    /** Shared, named conditions. Conditions made for a single part of a text are edited on that part instead. */
+    get conditionRows() {
+        return (this.body.conditions || [])
+            .map((c, index) => ({
+                ...c,
+                index,
+                usage: `{{#if cond:${c.name || 'Name'}}} … {{/if}}`
+            }))
+            .filter((c) => !c.auto);
+    }
+
+    get calcNameList() {
+        return (this.body.calculations || []).filter((c) => c.name).map((c) => c.name);
+    }
+
+    get baseObjectName() {
+        return this.tpl ? this.tpl.baseObject : null;
+    }
+
+    /** The object a direct related list holds, e.g. OpportunityLineItem for OpportunityLineItems. */
+    childObjectOf(listName) {
+        const info = this.tpl ? this.infoFor(this.tpl.baseObject) : null;
+        const child = info && listName ? info.children.find((c) => c.name === listName) : null;
+        return child ? child.childObject : null;
+    }
+
+    // ---------- Editing one conditional part, or one field, in a text ----------
+
+    focusPart = null;
+
+    handleSegClick(event) {
+        const { kind, id } = event.currentTarget.dataset;
+        if (kind !== 'section' && kind !== 'field') {
+            return;
+        }
+        event.stopPropagation();
+        const part = { blockId: id, kind };
+        if (kind === 'section') {
+            part.num = Number(event.currentTarget.dataset.num);
+        } else {
+            part.start = Number(event.currentTarget.dataset.start);
+            part.end = Number(event.currentTarget.dataset.end);
+            part.path = event.currentTarget.dataset.path;
+        }
+        if (this.selectedId !== id) {
+            this.select(id);
+        }
+        this.panelTab = 'settings';
+        this.focusPart = part;
+    }
+
+    handleLegendClick(event) {
+        event.stopPropagation();
+        const { id, num } = event.currentTarget.dataset;
+        if (this.selectedId !== id) {
+            this.select(id);
+        }
+        this.panelTab = 'settings';
+        this.focusPart = { blockId: id, kind: 'section', num: Number(num) };
+    }
+
+    handlePartClose() {
+        this.focusPart = null;
+    }
+
+    get selText() {
+        const block = this.body.blocks.find((b) => b.id === this.selectedId);
+        return block ? block.text || '' : '';
+    }
+
+    get partView() {
+        const part = this.focusPart;
+        if (!part || part.blockId !== this.selectedId || !this.selIsPlain) {
+            return null;
+        }
+        const text = this.selText;
+        if (part.kind === 'field') {
+            if (text.substring(part.start, part.end).indexOf('{{') !== 0) {
+                return null;
+            }
+            return { isField: true, label: this.fieldLabel(part.path) };
+        }
+        const section = this.findSection(text, part.num);
+        if (!section) {
+            return null;
+        }
+        let rule = null;
+        let sharedName = '';
+        if (section.target.startsWith('cond:')) {
+            const condition = this.namedCondition(section.target.substring(5).trim());
+            rule = condition ? condition.rule : null;
+            sharedName = condition && !condition.auto ? condition.name : '';
+        } else {
+            rule = { conditions: [{ field: section.target, op: section.negate ? 'blank' : 'notBlank', value: '' }] };
+        }
+        return {
+            isSection: true,
+            num: part.num,
+            title: 'Conditional part ' + part.num,
+            ifText: section.ifText,
+            elseText: section.elseText,
+            rule,
+            sharedName,
+            sharedHint: sharedName ? `Uses the shared condition "${sharedName}". Changing it here changes every text that uses it.` : '',
+            negated: section.negate && section.target.startsWith('cond:')
+        };
+    }
+
+    /** Applies a change to the selected block's text, given the current text. */
+    editSelText(change) {
+        this.mutate((body) => {
+            const block = this.blockIn(body);
+            if (block) {
+                block.text = change(block.text || '', body);
+            }
+        });
+    }
+
+    /**
+     * Wraps a field in a condition, together with the comma or space after it and, when the field is alone
+     * on its line, the line break, so nothing is left dangling when it is left out.
+     */
+    handleMakeConditional() {
+        const part = this.focusPart;
+        const text = this.selText;
+        const token = text.substring(part.start, part.end);
+        if (!token.startsWith('{{')) {
+            return;
+        }
+        const after = text.substring(part.end);
+        let trailing = new RegExp('^[ \\t]*[,;:|\\/\\u00b7\\u2013-]?[ \\t]*').exec(after)[0];
+        const lineStart = text.lastIndexOf('\n', part.start - 1) + 1;
+        const before = text.substring(lineStart, part.start);
+        const rest = after.substring(trailing.length);
+        if (!before.trim()) {
+            if (rest.startsWith('\r\n')) {
+                trailing += '\r\n';
+            } else if (rest.startsWith('\n')) {
+                trailing += '\n';
+            }
+        }
+        const wrapped = `{{#if ${part.path}}}${token}${trailing}{{/if}}`;
+        const num = (text.substring(0, part.start).match(/\{\{\s*#if\s/gi) || []).length + 1;
+        this.editSelText((current) => current.substring(0, part.start) + wrapped + current.substring(part.end + trailing.length));
+        this.focusPart = { blockId: part.blockId, kind: 'section', num };
+    }
+
+    handleRemoveField() {
+        const part = this.focusPart;
+        this.editSelText((current) => current.substring(0, part.start) + current.substring(part.end));
+        this.focusPart = null;
+    }
+
+    handlePartText(event) {
+        const value = event.detail.value || '';
+        const num = this.focusPart.num;
+        this.editSelText((current) => {
+            const s = this.findSection(current, num);
+            return s ? current.substring(0, s.openEnd) + value + current.substring(s.ifEnd) : current;
+        });
+    }
+
+    handlePartElse(event) {
+        const value = event.detail.value || '';
+        const num = this.focusPart.num;
+        this.editSelText((current) => {
+            const s = this.findSection(current, num);
+            if (!s) {
+                return current;
+            }
+            const head = current.substring(0, s.ifEnd);
+            const tail = current.substring(s.closeStart);
+            return value ? head + '{{else}}' + value + tail : head + tail;
+        });
+    }
+
+    /**
+     * Saves the rule for a part. A single "has a value" or "is empty" check stays in the text itself
+     * ({{#if City}}); anything more gets its own condition, kept with the template and named automatically.
+     */
+    handlePartRule(event) {
+        const rule = event.detail.rule;
+        const num = this.focusPart.num;
+        this.editSelText((current, body) => {
+            const s = this.findSection(current, num);
+            if (!s) {
+                return current;
+            }
+            body.conditions = body.conditions || [];
+            const single = rule && rule.conditions.length === 1 && !(rule.logic || '').trim() ? rule.conditions[0] : null;
+            const simple = single && single.field && !single.field.startsWith('calc:') && !single.field.endsWith('.') && (single.op === 'notBlank' || single.op === 'blank');
+            const named = s.target.startsWith('cond:') ? body.conditions.find((c) => (c.name || '').toLowerCase() === s.target.substring(5).trim().toLowerCase()) : null;
+            let tag;
+            if (simple && (!named || named.auto)) {
+                tag = `{{#if ${single.op === 'blank' ? 'not ' : ''}${single.field}}}`;
+            } else if (named) {
+                named.rule = rule;
+                return current;
+            } else {
+                const taken = new Set(body.conditions.map((c) => (c.name || '').toLowerCase()));
+                let n = 1;
+                while (taken.has('part' + n)) {
+                    n++;
+                }
+                const name = 'Part' + n;
+                body.conditions.push({ name, rule, auto: true });
+                tag = `{{#if cond:${name}}}`;
+            }
+            return current.substring(0, s.openStart) + tag + current.substring(s.openEnd);
+        });
+    }
+
+    handlePartUnwrap() {
+        const num = this.focusPart.num;
+        this.editSelText((current) => {
+            const s = this.findSection(current, num);
+            return s ? current.substring(0, s.openStart) + s.ifText + current.substring(s.closeEnd) : current;
+        });
+        this.focusPart = null;
+    }
+
+    handlePartDelete() {
+        const num = this.focusPart.num;
+        this.editSelText((current) => {
+            const s = this.findSection(current, num);
+            return s ? current.substring(0, s.openStart) + current.substring(s.closeEnd) : current;
+        });
+        this.focusPart = null;
+    }
+
+    handleConditionRule(event) {
+        const index = Number(event.target.dataset.index);
+        const rule = event.detail.rule;
+        this.mutate((body) => {
+            if (body.conditions && body.conditions[index]) {
+                body.conditions[index].rule = rule;
+            }
+        });
+    }
+
+    handleCalcFilter(event) {
+        const index = Number(event.target.dataset.index);
+        const rule = event.detail.rule;
+        this.mutate((body) => {
+            const calc = body.calculations[index];
+            if (!calc) {
+                return;
+            }
+            if (rule) {
+                calc.filter = rule;
+            } else {
+                delete calc.filter;
+            }
+        });
+    }
+
+    /** Creates a calculated value over this table's list with the same row filter, and a summary row showing it. */
+    handleMatchingTotal() {
+        const block = this.body.blocks.find((b) => b.id === this.selectedId);
+        if (!block || !block.source) {
+            this.toast('Choose the list first', 'Pick where the rows come from, then add the total.', 'warning');
+            return;
+        }
+        const columns = block.columns || [];
+        const money = columns.filter((c) => c.align === 'right').map((c) => c.field);
+        const field = money.length ? money[money.length - 1] : null;
+        const taken = new Set((this.body.calculations || []).map((c) => c.name));
+        let n = 1;
+        while (taken.has('Total' + n)) {
+            n++;
+        }
+        const name = 'Total' + n;
+        this.mutate((body) => {
+            const calc = { name, type: field ? 'sum' : 'count', source: block.source };
+            if (field) {
+                calc.field = field;
+            }
+            if (block.rowFilter) {
+                calc.filter = JSON.parse(JSON.stringify(block.rowFilter));
+            }
+            body.calculations.push(calc);
+            const target = this.blockIn(body);
+            target.totals = target.totals || [];
+            target.totals.push({ label: 'Total', calc: name });
+        });
+        this.toast('Total added', `${name} ${field ? 'adds up ' + field : 'counts the rows'} of this table's rows. Change it under Calculated values.`);
+    }
+
+    // ---------- Block layout ----------
+
+    spanOptions = [
+        { label: 'Full width', value: '100' },
+        { label: 'Three quarters', value: '75' },
+        { label: 'Two thirds', value: '67' },
+        { label: 'Half', value: '50' },
+        { label: 'One third', value: '33' },
+        { label: 'One quarter', value: '25' }
+    ];
+
+    get selSpan() {
+        return this.sel && this.sel.span ? String(this.sel.span) : '100';
+    }
+
+    /** The width choices, plus the current width when it was set by dragging a divider. */
+    get selSpanOptions() {
+        const current = this.selSpan;
+        if (this.spanOptions.some((o) => o.value === current)) {
+            return this.spanOptions;
+        }
+        return [{ label: current + '% (set by dragging)', value: current }, ...this.spanOptions];
+    }
+
+    get selCanLayout() {
+        return !!this.sel && this.sel.type !== 'pagebreak';
+    }
+
+    get selIsFirst() {
+        return !!this.sel && this.body.blocks.length > 0 && this.body.blocks[0].id === this.sel.id;
+    }
+
+    handleSpan(event) {
+        const span = Number(event.detail.value);
+        this.mutate((body) => {
+            const block = this.blockIn(body);
+            if (!block) {
+                return;
+            }
+            if (span === 100) {
+                delete block.span;
+            } else {
+                block.span = span;
+            }
+        });
+    }
+
+    /** Blocks grouped into rows the way the PDF lays them out: a block marked "beside" joins the row above. */
+    get blockRows() {
+        const rows = [];
+        this.blockViews.forEach((view, index) => {
+            const block = this.body.blocks[index];
+            const beside = block.beside === true && block.type !== 'pagebreak' && rows.length > 0;
+            if (!beside) {
+                rows.push({ key: 'row-' + view.id, cells: [] });
+            }
+            rows[rows.length - 1].cells.push(view);
+        });
+        // A divider between neighbours in a row can be dragged to share the width differently.
+        rows.forEach((row) => {
+            row.cells = row.cells.map((cell, i) => ({
+                ...cell,
+                handleAfter: i < row.cells.length - 1,
+                handleKey: 'h-' + cell.id,
+                nextId: i < row.cells.length - 1 ? row.cells[i + 1].id : null
+            }));
+        });
+        return rows;
+    }
+
+    // ---------- Arranging blocks by dragging ----------
+
+    dragId;
+    drop;
+    liveSpans = {};
+    resizing;
+
+    /** Groups block indexes into rows: [[0], [1, 2], [3]]. */
+    rowsOf(blocks) {
+        const rows = [];
+        blocks.forEach((b, i) => {
+            if (b.beside === true && b.type !== 'pagebreak' && rows.length) {
+                rows[rows.length - 1].push(i);
+            } else {
+                rows.push([i]);
+            }
+        });
+        return rows;
+    }
+
+    /** A block's width as shown: its own width, or an equal share of its row when it has none. */
+    effectiveSpan(blocks, id) {
+        const row = this.rowsOf(blocks).find((r) => r.some((i) => blocks[i].id === id));
+        const block = blocks.find((b) => b.id === id);
+        if (!row || !block) {
+            return 100;
+        }
+        if (block.span) {
+            return Number(block.span);
+        }
+        return row.length > 1 ? Math.floor(100 / row.length) : 100;
+    }
+
+    handleDragStart(event) {
+        this.dragId = event.currentTarget.dataset.id;
+        try {
+            event.dataTransfer.setData('text/plain', this.dragId);
+            event.dataTransfer.effectAllowed = 'move';
+        } catch (e) {
+            // Some browsers limit dataTransfer; the block id is kept on the component anyway.
+        }
+    }
+
+    handleDragOver(event) {
+        if (!this.dragId) {
+            return;
+        }
+        event.preventDefault();
+        const id = event.currentTarget.dataset.id;
+        if (id === this.dragId) {
+            if (this.drop) {
+                this.drop = undefined;
+            }
+            return;
+        }
+        const box = event.currentTarget.getBoundingClientRect();
+        const x = (event.clientX - box.left) / Math.max(box.width, 1);
+        const y = (event.clientY - box.top) / Math.max(box.height, 1);
+        let zone;
+        if (x < 0.25) {
+            zone = 'left';
+        } else if (x > 0.75) {
+            zone = 'right';
+        } else {
+            zone = y < 0.5 ? 'above' : 'below';
+        }
+        if (!this.drop || this.drop.id !== id || this.drop.zone !== zone) {
+            this.drop = { id, zone };
+        }
+    }
+
+    handleDrop(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const dragId = this.dragId;
+        const drop = this.drop;
+        this.dragId = undefined;
+        this.drop = undefined;
+        if (!dragId || !drop) {
+            return;
+        }
+        const result = this.placeBlock(this.body.blocks, dragId, drop.id, drop.zone);
+        if (result.error) {
+            this.toast('Cannot place it there', result.error, 'warning');
+            return;
+        }
+        this.mutate((body) => {
+            body.blocks = result.blocks;
+        });
+    }
+
+    handleDragEnd() {
+        this.dragId = undefined;
+        this.drop = undefined;
+    }
+
+    /**
+     * Moves a block next to another: to its left or right in the same row, or above or below that row.
+     * Rows that change get equal widths; a block that ends up alone goes back to full width.
+     */
+    placeBlock(blocks, dragId, targetId, zone) {
+        const list = blocks.map((b) => ({ ...b }));
+        const from = list.findIndex((b) => b.id === dragId);
+        if (from < 0 || dragId === targetId) {
+            return { blocks };
+        }
+        const touched = new Set([dragId]);
+        const oldRow = this.rowsOf(list).find((r) => r.includes(from));
+        oldRow.forEach((i) => touched.add(list[i].id));
+
+        const dragged = list[from];
+        const next = list[from + 1];
+        if (dragged.beside !== true && next && next.beside === true) {
+            next.beside = false;
+        }
+        list.splice(from, 1);
+        delete dragged.beside;
+
+        const t = list.findIndex((b) => b.id === targetId);
+        let where = zone;
+        if ((dragged.type === 'pagebreak' || list[t].type === 'pagebreak') && (where === 'left' || where === 'right')) {
+            where = where === 'left' ? 'above' : 'below';
+        }
+        const row = this.rowsOf(list).find((r) => r.includes(t));
+        row.forEach((i) => touched.add(list[i].id));
+        if (where === 'left' || where === 'right') {
+            if (row.length >= MAX_ROW) {
+                return { error: `A row holds up to ${MAX_ROW} blocks. Drop it above or below the row instead.` };
+            }
+            if (where === 'left') {
+                if (list[t].beside === true) {
+                    dragged.beside = true;
+                }
+                list[t].beside = true;
+                list.splice(t, 0, dragged);
+            } else {
+                dragged.beside = true;
+                list.splice(t + 1, 0, dragged);
+            }
+        } else if (where === 'above') {
+            list.splice(row[0], 0, dragged);
+        } else {
+            list.splice(row[row.length - 1] + 1, 0, dragged);
+        }
+
+        this.rowsOf(list).forEach((r) => {
+            if (!r.some((i) => touched.has(list[i].id))) {
+                return;
+            }
+            if (r.length === 1) {
+                delete list[r[0]].span;
+                return;
+            }
+            const share = Math.floor(100 / r.length);
+            r.forEach((i, k) => {
+                list[i].span = k === r.length - 1 ? 100 - share * (r.length - 1) : share;
+            });
+        });
+        list.forEach((b) => {
+            if (b.beside !== true) {
+                delete b.beside;
+            }
+        });
+        return { blocks: list };
+    }
+
+    /** Snaps a dragged width to steps of 5%, and to thirds when close. */
+    snapSpan(value) {
+        if (Math.abs(value - 100 / 3) < 2.5) {
+            return 33;
+        }
+        if (Math.abs(value - 200 / 3) < 2.5) {
+            return 67;
+        }
+        return Math.round(value / 5) * 5;
+    }
+
+    handleResizeStart(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const { left, right } = event.currentTarget.dataset;
+        const rowEl = event.currentTarget.parentElement;
+        const width = rowEl ? rowEl.getBoundingClientRect().width : 0;
+        if (!width) {
+            return;
+        }
+        this.resizing = {
+            left,
+            right,
+            startX: event.clientX,
+            width,
+            leftSpan: this.effectiveSpan(this.body.blocks, left),
+            rightSpan: this.effectiveSpan(this.body.blocks, right)
+        };
+        try {
+            event.currentTarget.setPointerCapture(event.pointerId);
+        } catch (e) {
+            // Without capture the drag still works while the pointer stays over the divider's row.
+        }
+    }
+
+    handleResizeMove(event) {
+        const r = this.resizing;
+        if (!r) {
+            return;
+        }
+        const total = r.leftSpan + r.rightSpan;
+        const delta = ((event.clientX - r.startX) / r.width) * 100;
+        const leftSpan = Math.max(MIN_SPAN, Math.min(total - MIN_SPAN, this.snapSpan(r.leftSpan + delta)));
+        if (this.liveSpans[r.left] !== leftSpan) {
+            this.liveSpans = { [r.left]: leftSpan, [r.right]: total - leftSpan };
+        }
+    }
+
+    handleResizeEnd() {
+        const r = this.resizing;
+        const spans = this.liveSpans;
+        this.resizing = undefined;
+        this.liveSpans = {};
+        if (!r || spans[r.left] === undefined) {
+            return;
+        }
+        this.mutate((body) => {
+            body.blocks.forEach((b) => {
+                if (spans[b.id] !== undefined) {
+                    b.span = spans[b.id];
+                }
+            });
+        });
+    }
+
+    /** Keyboard: arrow keys on a focused divider move it by 5%. */
+    handleResizeKey(event) {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+            return;
+        }
+        event.preventDefault();
+        const { left, right } = event.currentTarget.dataset;
+        const leftSpan = this.effectiveSpan(this.body.blocks, left);
+        const rightSpan = this.effectiveSpan(this.body.blocks, right);
+        const step = event.key === 'ArrowLeft' ? -5 : 5;
+        const nextLeft = Math.max(MIN_SPAN, Math.min(leftSpan + rightSpan - MIN_SPAN, leftSpan + step));
+        this.mutate((body) => {
+            body.blocks.forEach((b) => {
+                if (b.id === left) {
+                    b.span = nextLeft;
+                } else if (b.id === right) {
+                    b.span = leftSpan + rightSpan - nextLeft;
+                }
+            });
+        });
+    }
+
     get isPanelSigners() {
         return this.settingsPanel === 'signers';
     }
@@ -483,7 +1444,135 @@ export default class DocBuilderDesigner extends LightningElement {
     // ---------- Signers and signature blocks ----------
 
     get signerRows() {
-        return (this.body.signers || []).map((s, index) => ({ ...s, index, num: index + 1 }));
+        return (this.body.signers || []).map((s, index) => {
+            const mode = this.signerMode(s);
+            return { ...s, index, num: index + 1, mode, isTyped: mode === 'typed', isPerson: mode === 'person', isList: mode === 'list', ruleObject: this.childObjectOf(s.source) };
+        });
+    }
+
+    signerMode(signer) {
+        if (signer.source) {
+            return 'list';
+        }
+        return signer.mode === 'person' || signer.person ? 'person' : signer.mode === 'list' ? 'list' : 'typed';
+    }
+
+    signerModeOptions = [
+        { label: 'A person on this record', value: 'person' },
+        { label: 'Everyone in a related list', value: 'list' },
+        { label: 'Typed in or from fields', value: 'typed' }
+    ];
+
+    /** Lookups on this object to people who can sign: users, contacts and leads. */
+    get personOptions() {
+        const info = this.tpl ? this.infoFor(this.tpl.baseObject) : null;
+        if (!info) {
+            return [];
+        }
+        const options = [];
+        if (['Contact', 'Lead', 'User'].includes(info.name)) {
+            options.push({ label: `This ${info.label.toLowerCase()} itself`, value: '__self' });
+        }
+        info.fields
+            .filter((f) => f.relationshipName && ['User', 'Contact', 'Lead'].includes(f.referenceTo))
+            .map((f) => ({ label: `${f.label.replace(/ ID$/, '')} (${f.referenceTo})`, value: f.relationshipName }))
+            .sort((a, b) => a.label.localeCompare(b.label))
+            .forEach((o) => options.push(o));
+        return options;
+    }
+
+    get signerListOptions() {
+        const info = this.tpl ? this.infoFor(this.tpl.baseObject) : null;
+        if (!info) {
+            return [];
+        }
+        return info.children
+            .filter((c) => !NOISE_LISTS.test(c.name))
+            .map((c) => ({ label: `${c.label || c.name} (${c.name})`, value: c.name }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    }
+
+    updateSigner(index, change) {
+        this.mutate((body) => {
+            const signer = body.signers && body.signers[index];
+            if (signer) {
+                change(signer);
+            }
+        });
+    }
+
+    handleSignerMode(event) {
+        const index = Number(event.target.dataset.index);
+        const mode = event.detail.value;
+        this.updateSigner(index, (signer) => {
+            signer.mode = mode;
+            if (mode !== 'list') {
+                delete signer.source;
+                delete signer.nameField;
+                delete signer.emailField;
+                delete signer.filter;
+            }
+            if (mode !== 'person') {
+                delete signer.person;
+            }
+            if (mode !== 'typed') {
+                signer.name = '';
+                signer.email = '';
+            }
+        });
+    }
+
+    handleSignerPerson(event) {
+        const index = Number(event.target.dataset.index);
+        const rel = event.detail.value;
+        const prefix = rel === '__self' ? '' : rel + '.';
+        this.updateSigner(index, (signer) => {
+            signer.person = rel;
+            signer.name = `{{${prefix}Name}}`;
+            signer.email = `{{${prefix}Email}}`;
+        });
+    }
+
+    /** Picks sensible name and email fields for the chosen list, e.g. Contact.Name for contact roles. */
+    async handleSignerList(event) {
+        const index = Number(event.target.dataset.index);
+        const source = event.detail.value;
+        const owner = this.infoFor(this.tpl.baseObject);
+        const child = owner && owner.children.find((c) => c.name === source);
+        let nameField = 'Name';
+        let emailField = 'Email';
+        if (child) {
+            try {
+                const info = await this.ensureObject(child.childObject);
+                const hasEmail = info.fields.some((f) => f.name === 'Email');
+                const person = info.fields.find((f) => f.relationshipName && ['Contact', 'User', 'Lead'].includes(f.referenceTo) && /contact|user|lead/i.test(f.relationshipName));
+                if (!hasEmail && person) {
+                    nameField = person.relationshipName + '.Name';
+                    emailField = person.relationshipName + '.Email';
+                }
+            } catch (e) {
+                nameField = 'Name';
+            }
+        }
+        this.updateSigner(index, (signer) => {
+            signer.source = source;
+            signer.nameField = nameField;
+            signer.emailField = emailField;
+            signer.name = '';
+            signer.email = '';
+        });
+    }
+
+    handleSignerFilter(event) {
+        const index = Number(event.target.dataset.index);
+        const rule = event.detail.rule;
+        this.updateSigner(index, (signer) => {
+            if (rule) {
+                signer.filter = rule;
+            } else {
+                delete signer.filter;
+            }
+        });
     }
 
     get noSigners() {
@@ -492,11 +1581,16 @@ export default class DocBuilderDesigner extends LightningElement {
 
     /** How a signature block is drawn on the page: one signing area per signer. */
     get signatureAreas() {
-        const signers = this.body.signers || [];
+        // Empty rows are ignored when documents are generated, so they are not drawn either.
+        const signers = (this.body.signers || []).filter((s) => s.source || s.role || s.name || s.email);
         if (!signers.length) {
             return [{ key: 0, role: 'Signature', segs: [] }];
         }
-        return signers.map((s, index) => ({ key: index, role: s.role || `Signer ${index + 1}`, segs: this.segments(s.name) }));
+        return signers.map((s, index) => ({
+            key: index,
+            role: (s.role || `Signer ${index + 1}`) + (s.source ? ` · one area per person in ${s.source}` : ''),
+            segs: s.source ? [] : this.segments(s.name)
+        }));
     }
 
     get selIsSignature() {
@@ -518,7 +1612,7 @@ export default class DocBuilderDesigner extends LightningElement {
     }
 
     get panelTitle() {
-        const titles = { template: 'Name and languages', page: 'Page setup', headerfooter: 'Header, footer, watermark', calc: 'Calculated values', signers: 'Signers' };
+        const titles = { template: 'Name and languages', page: 'Page setup', headerfooter: 'Header, footer, watermark', calc: 'Calculated values', signers: 'Signers', conditions: 'Conditions', messages: 'Email and signing wording' };
         return titles[this.settingsPanel] || 'Template';
     }
 
@@ -529,9 +1623,24 @@ export default class DocBuilderDesigner extends LightningElement {
         return this.body.blocks.map((b, index) => {
             const type = b.type || 'text';
             const rule = this.ruleSummary(b.showIf);
+            const textual = type === 'heading' || (type === 'text' && !b.rich);
+            const view = textual ? this.textView(b.text, b.id) : { segs: [], legend: [] };
+            const live = this.liveSpans[b.id];
+            const span = live !== undefined ? live : b.span && Number(b.span) !== 100 ? Number(b.span) : null;
+            let cls = 'block' + (b.id === this.selectedId ? ' selected' : '');
+            if (this.dragId === b.id) {
+                cls += ' dragging';
+            }
+            if (this.drop && this.drop.id === b.id) {
+                cls += ' drop-' + this.drop.zone;
+            }
             return {
                 id: b.id,
-                cls: 'block' + (b.id === this.selectedId ? ' selected' : ''),
+                cls,
+                livePct: live !== undefined ? live + '%' : '',
+                textSegs: view.segs,
+                legend: view.legend,
+                hasLegend: view.legend.length > 0,
                 label: TYPE_LABELS[type] || type,
                 isHeading: type === 'heading',
                 isText: type === 'text' && !b.rich,
@@ -568,6 +1677,7 @@ export default class DocBuilderDesigner extends LightningElement {
                     return { key: item.id || i, num: i + 1 + '.', segs: this.segments(item.text), rule: itemRule, hasRule: !!itemRule };
                 }),
                 clauseCategory: b.clauseCategory,
+                cellStyle: span ? `flex: 0 1 ${span}%; min-width: 0` : 'flex: 1 1 100%; min-width: 0',
                 first: index === 0,
                 last: index === count - 1
             };
@@ -590,6 +1700,9 @@ export default class DocBuilderDesigner extends LightningElement {
     }
 
     async select(id) {
+        if (this.selectedId !== id) {
+            this.focusPart = null;
+        }
         this.selectedId = id;
         this.pickerPath = [];
         this.search = '';
@@ -609,6 +1722,7 @@ export default class DocBuilderDesigner extends LightningElement {
     }
 
     handleDeselect() {
+        this.focusPart = null;
         this.selectedId = undefined;
         this.pickerPath = [];
         this.tableObject = undefined;
@@ -962,6 +2076,10 @@ export default class DocBuilderDesigner extends LightningElement {
     }
 
     listOf(body, listName) {
+        if (listName === 'conditions') {
+            body.conditions = body.conditions || [];
+            return body.conditions;
+        }
         if (listName === 'signers') {
             body.signers = body.signers || [];
             return body.signers;
@@ -1020,7 +2138,8 @@ export default class DocBuilderDesigner extends LightningElement {
             totals: { label: 'Total', calc: '' },
             items: { id: this.uid(), text: '' },
             calculations: { name: '', type: 'count', source: '' },
-            signers: { role: '', name: '', email: '' }
+            signers: { role: 'Signer ' + ((this.body.signers || []).length + 1), mode: 'person', name: '', email: '' },
+            conditions: { name: 'Condition' + ((this.body.conditions || []).length + 1), rule: null }
         };
         this.mutate((body) => {
             const rows = this.listOf(body, list);
@@ -1042,15 +2161,392 @@ export default class DocBuilderDesigner extends LightningElement {
     }
 
     get calcRows() {
-        return this.body.calculations.map((c, index) => ({
-            ...c,
+        const base = this.tpl ? this.infoFor(this.tpl.baseObject) : null;
+        const lists = base
+            ? base.children.filter((ch) => !NOISE_LISTS.test(ch.name)).map((ch) => ({ label: `${ch.label || ch.name} (${ch.name})`, value: ch.name })).sort((a, b) => a.label.localeCompare(b.label))
+            : [];
+        return this.body.calculations.map((c, index) => {
+            const isFormula = c.type === 'formula';
+            const childObject = isFormula ? null : this.childObjectOf(c.source);
+            const childInfo = childObject ? this.infoFor(childObject) : null;
+            if (childObject && !childInfo) {
+                this.loadLater(childObject);
+            }
+            const listOptions = [...lists];
+            if (c.source && !listOptions.some((o) => o.value === c.source)) {
+                listOptions.unshift({ label: c.source, value: c.source });
+            }
+            const numericOptions = childInfo
+                ? childInfo.fields.filter((f) => NUMERIC_TYPES.includes(f.type)).map((f) => ({ label: f.label, value: f.name })).sort((a, b) => a.label.localeCompare(b.label))
+                : [];
+            if (c.field && numericOptions.length && !numericOptions.some((o) => o.value === c.field)) {
+                numericOptions.unshift({ label: c.field, value: c.field });
+            }
+            const fx = isFormula ? this.formulaView(c.expression || '', index) : {};
+            const result = this.calcPreview && this.calcPreview.values ? this.calcPreview.values[c.name] : undefined;
+            return {
+                ...c,
+                index,
+                type: c.type || 'count',
+                format: c.format || '',
+                isFormula,
+                isRollup: !isFormula,
+                needsField: !isFormula && c.type !== 'count' && !!c.type,
+                listOptions,
+                childObject,
+                fieldPicker: numericOptions.length > 0,
+                numericOptions,
+                fxSegs: fx.segs || [],
+                fxProblem: fx.problem || '',
+                fxInputId: 'fx-' + index,
+                suggestions: this.fx && this.fx.index === index ? this.fx.items : [],
+                showSuggest: !!(this.fx && this.fx.index === index && this.fx.items.length),
+                hasResult: result !== undefined,
+                result: result !== undefined ? '= ' + result : ''
+            };
+        });
+    }
+
+    pendingObjects = new Set();
+
+    /** Describes an object in the background; the panel redraws when it arrives. */
+    loadLater(objectName) {
+        const key = (objectName || '').toLowerCase();
+        if (!key || this.pendingObjects.has(key) || this.objects[key]) {
+            return;
+        }
+        this.pendingObjects.add(key);
+        // eslint-disable-next-line @lwc/lwc/no-async-operation
+        Promise.resolve()
+            .then(() => this.ensureObject(objectName))
+            .catch(() => undefined)
+            .finally(() => this.pendingObjects.delete(key));
+    }
+
+    /** Finds the field a path names, walking through related records. */
+    resolvePath(path) {
+        let info = this.tpl ? this.infoFor(this.tpl.baseObject) : null;
+        const parts = path.split('.');
+        const labels = [];
+        for (let i = 0; i < parts.length; i++) {
+            if (!info) {
+                return { pending: true };
+            }
+            const name = parts[i].toLowerCase();
+            if (i < parts.length - 1) {
+                const lookup = info.fields.find((f) => (f.relationshipName || '').toLowerCase() === name);
+                if (!lookup) {
+                    return { missing: true, where: info.label };
+                }
+                labels.push(lookup.label.replace(/ ID$/, ''));
+                info = this.infoFor(lookup.referenceTo);
+                if (!info) {
+                    this.loadLater(lookup.referenceTo);
+                }
+            } else {
+                const field = info.fields.find((f) => f.name.toLowerCase() === name);
+                if (!field) {
+                    return { missing: true, where: info.label };
+                }
+                labels.push(field.label);
+                return { field, label: labels.join(' › ') };
+            }
+        }
+        return { pending: true };
+    }
+
+    /** The formula read back with field labels as chips, and the first problem found, if any. */
+    formulaView(expression, index) {
+        const segs = [];
+        let problem = '';
+        const note = (text) => {
+            problem = problem || text;
+        };
+        const earlier = new Set(this.body.calculations.slice(0, index).map((c) => c.name));
+        const all = new Set(this.body.calculations.map((c) => c.name));
+        const tokens = expression.match(FX_TOKEN) || [];
+        let depth = 0;
+        let n = 0;
+        tokens.forEach((token, i) => {
+            if (/^\s+$/.test(token)) {
+                return;
+            }
+            let nextIndex = i + 1;
+            while (nextIndex < tokens.length && /^\s+$/.test(tokens[nextIndex])) {
+                nextIndex++;
+            }
+            const next = tokens[nextIndex];
+            let cls = 'fx-op';
+            let text = FX_SHOW[token] || token;
+            let title = '';
+            if (/^\d/.test(token)) {
+                cls = 'fx-num';
+            } else if (token.startsWith('calc:')) {
+                const name = token.substring(5);
+                text = name;
+                cls = 'chip chip-calc';
+                if (!all.has(name)) {
+                    cls += ' fx-bad';
+                    note(`There is no calculated value named ${name}.`);
+                } else if (!earlier.has(name)) {
+                    cls += ' fx-bad';
+                    note(`${name} is worked out after this formula. Move this formula below ${name}.`);
+                }
+            } else if (/^[A-Za-z_]/.test(token)) {
+                if (next === '(') {
+                    const fn = FX_FUNCTIONS.find((f) => f.name === token.toUpperCase());
+                    cls = fn ? 'fx-fn' : 'fx-fn fx-bad';
+                    title = fn ? fn.hint : '';
+                    if (!fn) {
+                        note(`${token} is not a function. Use ${FX_FUNCTIONS.map((f) => f.name).join(', ')}.`);
+                    }
+                } else {
+                    const found = this.resolvePath(token);
+                    cls = 'chip';
+                    title = token;
+                    if (found.field) {
+                        text = found.label;
+                        if (!NUMERIC_TYPES.includes(found.field.type)) {
+                            cls += ' fx-warn';
+                            note(`${found.label} is not a number field, so it can only be used if it holds a number.`);
+                        }
+                    } else if (found.missing) {
+                        cls += ' fx-bad';
+                        note(`${token} is not a field on ${found.where}.`);
+                    }
+                }
+            } else if (token === '(') {
+                depth++;
+            } else if (token === ')') {
+                depth--;
+                if (depth < 0) {
+                    note('There is a closing bracket without an opening one.');
+                }
+            } else if (!FX_OPERATOR.test(token)) {
+                cls = 'fx-op fx-bad';
+                note(`"${token}" cannot be used in a formula.`);
+            }
+            segs.push({ key: n++, text, cls, title });
+        });
+        if (depth > 0) {
+            note('A bracket is not closed.');
+        }
+        return { segs, problem };
+    }
+
+    // ----- Formula suggestions -----
+
+    fx;
+    pendingCaret;
+
+    /** What can be typed at the caret: fields (and related records), calculated values above, and functions. */
+    suggestFor(value, caret, index) {
+        const before = value.substring(0, caret);
+        const match = /[A-Za-z_][A-Za-z0-9_.:]*$/.exec(before);
+        if (!match) {
+            return null;
+        }
+        const fragment = match[0];
+        const start = caret - fragment.length;
+        const items = [];
+        if (fragment.toLowerCase().startsWith('calc:') || fragment.toLowerCase() === 'calc') {
+            const term = fragment.substring(5).toLowerCase();
+            this.body.calculations
+                .slice(0, index)
+                .filter((c) => c.name && c.name.toLowerCase().startsWith(term))
+                .forEach((c) => items.push({ label: c.name, detail: 'Calculated value', insert: 'calc:' + c.name }));
+            return { start, items };
+        }
+        const dot = fragment.lastIndexOf('.');
+        const prefix = dot >= 0 ? fragment.substring(0, dot + 1) : '';
+        const term = (dot >= 0 ? fragment.substring(dot + 1) : fragment).toLowerCase();
+        let info = this.tpl ? this.infoFor(this.tpl.baseObject) : null;
+        if (prefix) {
+            prefix
+                .slice(0, -1)
+                .split('.')
+                .forEach((rel) => {
+                    if (!info) {
+                        return;
+                    }
+                    const lookup = info.fields.find((f) => (f.relationshipName || '').toLowerCase() === rel.toLowerCase());
+                    info = lookup ? this.infoFor(lookup.referenceTo) : null;
+                    if (lookup && !info) {
+                        this.loadLater(lookup.referenceTo);
+                    }
+                });
+        }
+        const matches = (label, name) => !term || label.toLowerCase().includes(term) || name.toLowerCase().startsWith(term);
+        if (info) {
+            info.fields
+                .filter((f) => NUMERIC_TYPES.includes(f.type) && matches(f.label, f.name))
+                .sort((a, b) => a.label.localeCompare(b.label))
+                .slice(0, 8)
+                .forEach((f) => items.push({ label: f.label, detail: f.type, insert: prefix + f.name }));
+            info.fields
+                .filter((f) => f.relationshipName && matches(f.label, f.relationshipName))
+                .slice(0, 4)
+                .forEach((f) => items.push({ label: f.label.replace(/ ID$/, '') + ' ›', detail: 'Related record', insert: prefix + f.relationshipName + '.' }));
+        }
+        if (!prefix) {
+            this.body.calculations
+                .slice(0, index)
+                .filter((c) => c.name && c.name.toLowerCase().includes(term))
+                .forEach((c) => items.push({ label: c.name, detail: 'Calculated value', insert: 'calc:' + c.name }));
+            FX_FUNCTIONS.filter((f) => f.name.toLowerCase().startsWith(term)).forEach((f) => items.push({ label: f.name, detail: f.hint, insert: f.name + '(' }));
+        }
+        return { start, items: items.slice(0, 10) };
+    }
+
+    showSuggestions(input) {
+        const index = Number(input.dataset.index);
+        const found = this.suggestFor(input.value, input.selectionStart, index);
+        if (!found || !found.items.length) {
+            this.fx = undefined;
+            return;
+        }
+        this.fx = {
             index,
-            type: c.type || 'count',
-            format: c.format || '',
-            isFormula: c.type === 'formula',
-            isRollup: c.type !== 'formula',
-            needsField: c.type !== 'formula' && c.type !== 'count' && !!c.type
-        }));
+            start: found.start,
+            caret: input.selectionStart,
+            active: 0,
+            items: found.items.map((item, i) => ({ ...item, key: item.insert, i, cls: i === 0 ? 'fx-item on' : 'fx-item' }))
+        };
+    }
+
+    handleFormulaInput(event) {
+        const input = event.target;
+        const index = Number(input.dataset.index);
+        const value = input.value;
+        this.mutate((body) => {
+            if (body.calculations[index]) {
+                body.calculations[index].expression = value;
+            }
+        });
+        this.showSuggestions(input);
+    }
+
+    handleFormulaKey(event) {
+        if (!this.fx || !this.fx.items.length) {
+            return;
+        }
+        const count = this.fx.items.length;
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            const active = (this.fx.active + (event.key === 'ArrowDown' ? 1 : count - 1)) % count;
+            this.fx = { ...this.fx, active, items: this.fx.items.map((item) => ({ ...item, cls: item.i === active ? 'fx-item on' : 'fx-item' })) };
+        } else if (event.key === 'Enter' || event.key === 'Tab') {
+            event.preventDefault();
+            this.pickSuggestion(this.fx.items[this.fx.active]);
+        } else if (event.key === 'Escape') {
+            this.fx = undefined;
+        }
+    }
+
+    handleFormulaBlur() {
+        // A click on a suggestion is handled on mousedown, before the box loses focus.
+        this.fx = undefined;
+    }
+
+    handleSuggestPick(event) {
+        event.preventDefault();
+        const i = Number(event.currentTarget.dataset.i);
+        if (this.fx) {
+            this.pickSuggestion(this.fx.items[i]);
+        }
+    }
+
+    pickSuggestion(item) {
+        const { index, start, caret } = this.fx;
+        const calc = this.body.calculations[index];
+        if (!item || !calc) {
+            return;
+        }
+        const value = calc.expression || '';
+        const next = value.substring(0, start) + item.insert + value.substring(caret);
+        this.mutate((body) => {
+            body.calculations[index].expression = next;
+        });
+        this.pendingCaret = { index, pos: start + item.insert.length };
+        // Keep suggesting while a related record's fields are being chosen.
+        this.fx = undefined;
+        if (item.insert.endsWith('.')) {
+            const found = this.suggestFor(next, start + item.insert.length, index);
+            if (found && found.items.length) {
+                this.fx = { index, start: found.start, caret: start + item.insert.length, active: 0, items: found.items.map((it, i) => ({ ...it, key: it.insert, i, cls: i === 0 ? 'fx-item on' : 'fx-item' })) };
+            }
+        }
+    }
+
+    // ----- Live results for a sample record -----
+
+    calcPreview;
+    calcTimer;
+
+    handleCalcRecord(event) {
+        this.previewRecordId = event.detail.recordId;
+        this.calcPreview = undefined;
+        this.refreshCalcValues();
+    }
+
+    scheduleCalcRefresh() {
+        if (!this.previewRecordId) {
+            return;
+        }
+        clearTimeout(this.calcTimer);
+        // eslint-disable-next-line @lwc/lwc/no-async-operation
+        this.calcTimer = setTimeout(() => this.refreshCalcValues(), 700);
+    }
+
+    async refreshCalcValues() {
+        if (!this.previewRecordId || !this.tpl) {
+            return;
+        }
+        // Only the newest request may update the read-out, so a slow older answer never overwrites a newer one.
+        const ticket = (this.calcTicket = (this.calcTicket || 0) + 1);
+        let answer;
+        try {
+            answer = await calcValues({ bodyJson: JSON.stringify(this.body), baseObject: this.tpl.baseObject, recordId: this.previewRecordId });
+        } catch (e) {
+            answer = { ok: false, values: {}, message: this.messageOf(e) };
+        }
+        if (ticket === this.calcTicket) {
+            this.calcPreview = answer;
+        }
+    }
+
+    get calcPreviewProblem() {
+        return this.calcPreview && this.calcPreview.ok === false ? this.calcPreview.message : '';
+    }
+
+    get calcNoRecord() {
+        return !this.previewRecordId;
+    }
+
+    get fxHelp() {
+        return 'Type a field name or label and pick it from the list. Use + − * / and brackets, calc:Name for a value worked out above, and ' + FX_FUNCTIONS.map((f) => f.name).join(', ') + '.';
+    }
+
+    get sortOptions() {
+        const info = this.tableObject ? this.infoFor(this.tableObject) : null;
+        if (!info) {
+            return null;
+        }
+        const options = [{ label: 'Keep the list order', value: '' }].concat(
+            info.fields
+                .filter((f) => f.type !== 'Reference')
+                .map((f) => ({ label: f.label, value: f.name }))
+                .sort((a, b) => a.label.localeCompare(b.label))
+        );
+        const current = this.sel && this.sel.orderBy;
+        if (current && !options.some((o) => o.value === current)) {
+            options.splice(1, 0, { label: current, value: current });
+        }
+        return options;
+    }
+
+    get hasSortOptions() {
+        return !!this.sortOptions;
     }
 
     get calcOptions() {
@@ -1217,7 +2713,7 @@ export default class DocBuilderDesigner extends LightningElement {
             });
             return;
         }
-        const token = `{{${path}}}`;
+        let token = `{{${path}}}`;
         const block = this.body.blocks.find((b) => b.id === this.selectedId);
         if (this.focus.prop === 'fileNamePattern' && !block) {
             this.fileNamePattern = (this.fileNamePattern || '') + token;
@@ -1234,6 +2730,14 @@ export default class DocBuilderDesigner extends LightningElement {
             });
             return;
         }
+        if (!block && this.focus.prop && this.focus.prop.startsWith('msg:')) {
+            const key = this.focus.prop.substring(4);
+            this.mutate((body) => {
+                body.messages = body.messages || {};
+                body.messages[key] = (body.messages[key] || '') + token;
+            });
+            return;
+        }
         const pageSections = { headerText: 'header', footerText: 'footer', watermarkText: 'watermark' };
         if (!block && pageSections[this.focus.prop]) {
             const section = pageSections[this.focus.prop];
@@ -1246,6 +2750,12 @@ export default class DocBuilderDesigner extends LightningElement {
         }
         if (block && (block.type === 'text' || block.type === 'heading')) {
             const prop = this.focus.prop === 'elseText' ? 'elseText' : 'text';
+            // Optionally wrap the field in a condition so it only prints when the condition holds.
+            if (this.wrapMode === 'filled') {
+                token = `{{#if ${path}}}${token}{{/if}}`;
+            } else if (this.wrapMode && this.wrapMode.startsWith('cond:')) {
+                token = `{{#if ${this.wrapMode}}}${token}{{/if}}`;
+            }
             this.mutate((body) => {
                 const target = this.blockIn(body);
                 const current = target[prop] || '';

@@ -46,6 +46,7 @@ public with sharing class DocBuilderPrepare {
             SELECT Block_Id__c, Part__c, Translated_Text__c
             FROM DocTranslation__c
             WHERE Template_Version__c = :versionId AND Language__c = :language
+            WITH USER_MODE
         ]) {
             if (String.isNotBlank(t.Translated_Text__c)) {
                 translations.put(t.Block_Id__c + '|' + t.Part__c, t.Translated_Text__c);
@@ -67,6 +68,7 @@ public with sharing class DocBuilderPrepare {
                 SELECT Block_Id__c, Part__c, Source_Text__c, Translated_Text__c
                 FROM DocTranslation__c
                 WHERE Template_Version__c = :versionId AND Language__c = :language
+                WITH USER_MODE
             ]) {
                 existing.put(t.Block_Id__c + '|' + t.Part__c, t);
             }
@@ -151,11 +153,12 @@ public with sharing class DocBuilderPrepare {
             SELECT Id, Category__c, Text__c, Rule_JSON__c
             FROM DocClause__c
             WHERE Active__c = TRUE AND Category__c IN :categories
+            WITH USER_MODE
             ORDER BY Sort_Order__c NULLS LAST, Name
         ];
         Map<Id, String> translated = new Map<Id, String>();
         if (String.isNotBlank(language) && !clauses.isEmpty()) {
-            for (DocTranslation__c t : [SELECT Clause__c, Translated_Text__c FROM DocTranslation__c WHERE Clause__c IN :clauses AND Language__c = :language]) {
+            for (DocTranslation__c t : [SELECT Clause__c, Translated_Text__c FROM DocTranslation__c WHERE Clause__c IN :clauses AND Language__c = :language WITH USER_MODE]) {
                 if (String.isNotBlank(t.Translated_Text__c)) {
                     translated.put(t.Clause__c, t.Translated_Text__c);
                 }

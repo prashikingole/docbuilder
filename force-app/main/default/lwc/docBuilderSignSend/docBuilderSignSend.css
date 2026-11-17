@@ -499,3 +499,14 @@ h3.big {
     color: #45454f;
     margin-top: 0.1875rem;
 }
+.preview-body table.cols {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    margin: 0 0 0.625rem;
+}
+.preview-body td.col {
+    vertical-align: top;
+    padding: 0 0.625rem 0 0;
+    border: none;
+}

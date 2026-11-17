@@ -4,7 +4,7 @@
  * Settings JSON: { "accountId": "<API account ID>" }
  * Fields are placed with anchor strings printed in the document.
  */
-global with sharing class DocBuilderSignDocuSign implements DocBuilderSignProvider, DocBuilderSignWebhook {
+global with sharing class DocBuilderSignDocuSign implements DocBuilderSignProvider, DocBuilderSignWebhook, DocBuilderSignCheck {
     static final Map<String, String> CODES = new Map<String, String>{ 'signature' => 'sig', 'date' => 'date', 'name' => 'name', 'initials' => 'init' };
 
     global String marker(Integer signerNumber, String fieldType) {
@@ -16,7 +16,7 @@ global with sharing class DocBuilderSignDocuSign implements DocBuilderSignProvid
         if (accountId == null || String.isBlank(String.valueOf(accountId))) {
             throw new DocBuilder.DocBuilderException('Add your DocuSign account ID to the provider Settings JSON as {"accountId":"..."}.');
         }
-        return '/restapi/v2.1/accounts/' + String.valueOf(accountId).trim();
+        return '/restapi/v2.1/accounts/' + DocBuilderSignHttp.pathId(String.valueOf(accountId).trim());
     }
 
     Map<String, Object> anchor(Integer signerNumber, String fieldType) {
@@ -66,7 +66,7 @@ global with sharing class DocBuilderSignDocuSign implements DocBuilderSignProvid
     }
 
     global DocBuilderSign.StatusResult getStatus(DocBuilderSign.ProviderConfig config, String externalId) {
-        Map<String, Object> answer = DocBuilderSignHttp.parse(DocBuilderSignHttp.call(config, 'GET', base(config) + '/envelopes/' + externalId + '?include=recipients', null, null));
+        Map<String, Object> answer = DocBuilderSignHttp.parse(DocBuilderSignHttp.call(config, 'GET', base(config) + '/envelopes/' + DocBuilderSignHttp.pathId(externalId) + '?include=recipients', null, null));
         DocBuilderSign.StatusResult result = new DocBuilderSign.StatusResult();
         String status = String.valueOf(answer.get('status')).toLowerCase();
         result.status = status == 'completed' ? 'Completed' : (status == 'declined' ? 'Declined' : (status == 'voided' ? 'Voided' : 'Sent'));
@@ -86,11 +86,11 @@ global with sharing class DocBuilderSignDocuSign implements DocBuilderSignProvid
     }
 
     global Blob download(DocBuilderSign.ProviderConfig config, String externalId) {
-        return DocBuilderSignHttp.call(config, 'GET', base(config) + '/envelopes/' + externalId + '/documents/combined', null, null).getBodyAsBlob();
+        return DocBuilderSignHttp.call(config, 'GET', base(config) + '/envelopes/' + DocBuilderSignHttp.pathId(externalId) + '/documents/combined', null, null).getBodyAsBlob();
     }
 
     global void cancel(DocBuilderSign.ProviderConfig config, String externalId, String reason) {
-        DocBuilderSignHttp.callJson(config, 'PUT', base(config) + '/envelopes/' + externalId, new Map<String, Object>{ 'status' => 'voided', 'voidedReason' => reason });
+        DocBuilderSignHttp.callJson(config, 'PUT', base(config) + '/envelopes/' + DocBuilderSignHttp.pathId(externalId), new Map<String, Object>{ 'status' => 'voided', 'voidedReason' => reason });
     }
 
     // ---------- Instant updates (DocuSign Connect, JSON format) ----------
@@ -109,5 +109,13 @@ global with sharing class DocBuilderSignDocuSign implements DocBuilderSignProvid
 
     global void respond(RestRequest request, RestResponse response) {
         response.responseBody = Blob.valueOf('OK');
+    }
+
+    // ---------- Connection test ----------
+
+    global String check(DocBuilderSign.ProviderConfig config) {
+        Map<String, Object> account = DocBuilderSignHttp.parse(DocBuilderSignHttp.call(config, 'GET', base(config), null, null));
+        Object name = account.get('accountName');
+        return 'Connected to DocuSign account ' + (name == null ? String.valueOf(config.settings.get('accountId')) : String.valueOf(name)) + '.';
     }
 }

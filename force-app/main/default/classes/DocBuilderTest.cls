@@ -1,5 +1,10 @@
 @IsTest
 private class DocBuilderTest {
+    @TestSetup
+    static void grantPermissions() {
+        DocBuilderTestUtil.grantAdmin();
+    }
+
     static Map<String, Object> cond(String field, String op, Object value) {
         return new Map<String, Object>{ 'field' => field, 'op' => op, 'value' => value };
     }

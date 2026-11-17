@@ -134,7 +134,8 @@ global with sharing class DocBuilderSign {
                 throw new DocBuilder.DocBuilderException('The Settings JSON of signature provider "' + providerName + '" is not valid JSON.');
             }
         }
-        if (Test.isRunningTest() && testSettings.containsKey(providerName)) {
+        // testSettings is private and @TestVisible, so only test code can fill it.
+        if (!testSettings.isEmpty() && testSettings.containsKey(providerName)) {
             config.settings = testSettings.get(providerName);
             config.namedCredential = 'Unit_Credential';
         }
@@ -156,6 +157,48 @@ global with sharing class DocBuilderSign {
             throw new DocBuilder.DocBuilderException('Apex class "' + className + '" does not implement DocBuilderSignProvider.');
         }
         return (DocBuilderSignProvider) instance;
+    }
+
+    /** Every provider row, active or not, for the admin's provider list. */
+    public class ProviderStatus {
+        @AuraEnabled
+        public String name;
+        @AuraEnabled
+        public String label;
+        @AuraEnabled
+        public Boolean active;
+        @AuraEnabled
+        public String namedCredential;
+    }
+
+    public static List<ProviderStatus> allProviders() {
+        List<ProviderStatus> result = new List<ProviderStatus>();
+        for (DocSignProvider__mdt row : [
+            SELECT DeveloperName, MasterLabel, Active__c, Named_Credential__c
+            FROM DocSignProvider__mdt
+            ORDER BY Sort_Order__c NULLS LAST, MasterLabel
+        ]) {
+            ProviderStatus status = new ProviderStatus();
+            status.name = row.DeveloperName;
+            status.label = row.MasterLabel;
+            status.active = row.Active__c;
+            status.namedCredential = row.Named_Credential__c;
+            result.add(status);
+        }
+        return result;
+    }
+
+    /**
+     * Checks that a provider is reachable and signed in, without sending anything. Works whether or not the
+     * provider is active, so admins can test before switching it on. Returns a plain description of the result.
+     */
+    global static String testConnection(String providerName) {
+        ProviderConfig config = configFor(providerName);
+        DocBuilderSignProvider provider = providerFor(providerName);
+        if (!(provider instanceof DocBuilderSignCheck)) {
+            return config.label + ' has no connection test. Send a document to check it.';
+        }
+        return ((DocBuilderSignCheck) provider).check(config);
     }
 
     // ---------- Sending ----------
@@ -189,9 +232,12 @@ global with sharing class DocBuilderSign {
         if (signers == null || signers.isEmpty()) {
             throw new DocBuilder.DocBuilderException('This template has no signers. Add them under Signers in the Template Designer.');
         }
+        Integer checked = 0;
         for (Signer signer : signers) {
+            checked++;
             if (String.isBlank(signer.email)) {
-                throw new DocBuilder.DocBuilderException('Signer "' + (String.isBlank(signer.role) ? signer.name : signer.role) + '" has no email address.');
+                String who = String.isNotBlank(signer.name) ? signer.name : (String.isNotBlank(signer.role) ? signer.role : 'Signer ' + checked);
+                throw new DocBuilder.DocBuilderException(who + ' has no email address. Fill it in, or check the field it comes from on this record.');
             }
         }
 
@@ -201,11 +247,13 @@ global with sharing class DocBuilderSign {
             Status__c = 'Queued',
             Record_Id__c = request.recordId,
             File_Name__c = generated.fileName,
-            Subject__c = String.isBlank(request.subject) ? ('Please sign: ' + generated.fileName.removeEnd('.pdf')).left(255) : request.subject.left(255),
-            Message__c = request.message,
+            Subject__c = String.isNotBlank(request.subject)
+                ? request.subject.left(255)
+                : (String.isNotBlank(generated.signSubject) ? generated.signSubject.left(255) : ('Please sign: ' + generated.fileName.removeEnd('.pdf')).left(255)),
+            Message__c = String.isNotBlank(request.message) ? request.message : generated.signMessage,
             Unsigned_Content_Version_Id__c = generated.contentVersionId
         );
-        insert record;
+        DocBuilderStore.insertRecord(record);
 
         List<DocSigner__c> rows = new List<DocSigner__c>();
         Integer position = 0;
@@ -222,7 +270,7 @@ global with sharing class DocBuilderSign {
                 )
             );
         }
-        insert rows;
+        DocBuilderStore.insertRecords(rows);
 
         System.enqueueJob(new DocBuilderSignJob(record.Id));
         return record.Id;
@@ -237,12 +285,17 @@ global with sharing class DocBuilderSign {
         public Blob signedFile;
         public Boolean fetched = false;
         public String error;
+        public String errorDetail;
     }
 
-    static final String REQUEST_FIELDS = 'Id, Provider__c, External_Id__c, Status__c, Record_Id__c, File_Name__c, Unsigned_Content_Version_Id__c, Signed_Content_Version_Id__c';
-
+    /** Loads requests for background work. User-facing callers must check access first (see refresh and cancel). */
     public static List<DocSignRequest__c> loadRequests(Set<Id> ids) {
-        return Database.query('SELECT ' + REQUEST_FIELDS + ', (SELECT Id, Email__c, Status__c FROM Signers__r) FROM DocSignRequest__c WHERE Id IN :ids');
+        return DocBuilderStore.loadRequests(ids);
+    }
+
+    /** Confirms, with the user's own access, that they can see this request. */
+    static Boolean canSee(Id signatureRequestId) {
+        return ![SELECT Id FROM DocSignRequest__c WHERE Id = :signatureRequestId WITH USER_MODE LIMIT 1].isEmpty();
     }
 
     /** Asks the provider for the latest status. Makes callouts and saves nothing. */
@@ -258,7 +311,8 @@ global with sharing class DocBuilderSign {
                 outcome.fetched = true;
             }
         } catch (Exception e) {
-            outcome.error = e.getMessage();
+            outcome.error = DocBuilderSignHttp.userMessage(e);
+            outcome.errorDetail = DocBuilderSignHttp.detailOf(e);
         }
         return outcome;
     }
@@ -274,13 +328,14 @@ global with sharing class DocBuilderSign {
                 unsignedIds.add(outcome.request.Unsigned_Content_Version_Id__c);
             }
         }
-        Map<Id, ContentVersion> unsigned = new Map<Id, ContentVersion>([SELECT Id, VersionData FROM ContentVersion WHERE Id IN :unsignedIds]);
+        Map<Id, ContentVersion> unsigned = DocBuilderStore.fileData(unsignedIds);
 
         for (Outcome outcome : outcomes) {
             DocSignRequest__c request = new DocSignRequest__c(Id = outcome.request.Id, Last_Checked_On__c = System.now());
             requests.add(request);
             if (outcome.error != null) {
                 request.Error_Message__c = outcome.error.left(32000);
+                request.Error_Detail__c = outcome.errorDetail == null ? null : outcome.errorDetail.left(32000);
                 continue;
             }
             if (outcome.status == null || String.isBlank(outcome.status.status)) {
@@ -288,6 +343,7 @@ global with sharing class DocBuilderSign {
             }
             request.Status__c = outcome.status.status;
             request.Error_Message__c = null;
+            request.Error_Detail__c = null;
             Boolean completed = outcome.status.status == 'Completed';
             if (completed && outcome.request.Status__c != 'Completed') {
                 request.Completed_On__c = System.now();
@@ -327,18 +383,21 @@ global with sharing class DocBuilderSign {
             }
         }
 
-        insert signedCopies.values();
+        DocBuilderStore.insertRecords(signedCopies.values());
         for (DocSignRequest__c request : requests) {
             if (signedCopies.containsKey(request.Id)) {
                 request.Signed_Content_Version_Id__c = signedCopies.get(request.Id).Id;
             }
         }
-        update signers;
-        update requests;
+        DocBuilderStore.updateRecords(signers);
+        DocBuilderStore.updateRecords(requests);
     }
 
-    /** Checks one request with its provider now and saves the result. */
+    /** Checks one request with its provider now and saves the result. Does nothing for a request the user cannot see. */
     global static void refresh(Id signatureRequestId) {
+        if (signatureRequestId == null || !canSee(signatureRequestId)) {
+            return;
+        }
         List<DocSignRequest__c> found = loadRequests(new Set<Id>{ signatureRequestId });
         if (found.isEmpty() || String.isBlank(found[0].External_Id__c)) {
             return;
@@ -348,10 +407,13 @@ global with sharing class DocBuilderSign {
 
     /** Withdraws a request at the provider and marks it Voided. */
     global static void cancel(Id signatureRequestId, String reason) {
+        if (signatureRequestId == null || !canSee(signatureRequestId)) {
+            throw new DocBuilder.DocBuilderException('This signature request does not exist or you do not have access to it.');
+        }
         DocSignRequest__c request = loadRequests(new Set<Id>{ signatureRequestId })[0];
         if (String.isNotBlank(request.External_Id__c)) {
             providerFor(request.Provider__c).cancel(configFor(request.Provider__c), request.External_Id__c, String.isBlank(reason) ? 'Withdrawn by sender' : reason);
         }
-        update new DocSignRequest__c(Id = request.Id, Status__c = 'Voided', Last_Checked_On__c = System.now());
+        DocBuilderStore.updateRecord(new DocSignRequest__c(Id = request.Id, Status__c = 'Voided', Last_Checked_On__c = System.now()));
     }
 }

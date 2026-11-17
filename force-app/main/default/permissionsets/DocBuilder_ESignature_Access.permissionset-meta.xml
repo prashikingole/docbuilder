@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Send for signature through the e-signature credentials packaged with DocBuilder (Dropbox Sign). In both DocBuilder groups. Credentials you add yourself (DocuSign, Adobe Sign) need their own permission set.</description>
+    <externalCredentialPrincipalAccesses>
+        <enabled>true</enabled>
+        <externalCredentialPrincipal>DocBuilder_DropboxSign-DropboxSignKey</externalCredentialPrincipal>
+    </externalCredentialPrincipalAccesses>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>DocBuilder E-Signature Access</label>
+</PermissionSet>

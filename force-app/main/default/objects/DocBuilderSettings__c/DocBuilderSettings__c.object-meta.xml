@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <customSettingsType>Hierarchy</customSettingsType>
+    <description>Organization-wide limits for DocBuilder: who documents can be emailed to and how large bulk runs can be.</description>
+    <enableFeeds>false</enableFeeds>
+    <label>DocBuilder Settings</label>
+    <visibility>Public</visibility>
+</CustomObject>

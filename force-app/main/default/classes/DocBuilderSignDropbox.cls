@@ -4,7 +4,7 @@
  * Settings JSON: { "testMode": true } sends test requests that are not legally binding and are not billed.
  * Fields are placed with text tags printed in the document.
  */
-global with sharing class DocBuilderSignDropbox implements DocBuilderSignProvider, DocBuilderSignWebhook {
+global with sharing class DocBuilderSignDropbox implements DocBuilderSignProvider, DocBuilderSignWebhook, DocBuilderSignCheck {
     global String marker(Integer signerNumber, String fieldType) {
         String who = 'signer' + signerNumber;
         if (fieldType == 'date') {
@@ -59,7 +59,7 @@ global with sharing class DocBuilderSignDropbox implements DocBuilderSignProvide
     }
 
     global DocBuilderSign.StatusResult getStatus(DocBuilderSign.ProviderConfig config, String externalId) {
-        Map<String, Object> answer = DocBuilderSignHttp.parse(DocBuilderSignHttp.call(config, 'GET', '/v3/signature_request/' + externalId, null, null));
+        Map<String, Object> answer = DocBuilderSignHttp.parse(DocBuilderSignHttp.call(config, 'GET', '/v3/signature_request/' + DocBuilderSignHttp.pathId(externalId), null, null));
         Map<String, Object> request = (Map<String, Object>) answer.get('signature_request');
         DocBuilderSign.StatusResult result = new DocBuilderSign.StatusResult();
         if (request.get('is_complete') == true) {
@@ -85,11 +85,11 @@ global with sharing class DocBuilderSignDropbox implements DocBuilderSignProvide
     }
 
     global Blob download(DocBuilderSign.ProviderConfig config, String externalId) {
-        return DocBuilderSignHttp.call(config, 'GET', '/v3/signature_request/files/' + externalId + '?file_type=pdf', null, null).getBodyAsBlob();
+        return DocBuilderSignHttp.call(config, 'GET', '/v3/signature_request/files/' + DocBuilderSignHttp.pathId(externalId) + '?file_type=pdf', null, null).getBodyAsBlob();
     }
 
     global void cancel(DocBuilderSign.ProviderConfig config, String externalId, String reason) {
-        DocBuilderSignHttp.call(config, 'POST', '/v3/signature_request/cancel/' + externalId, null, null);
+        DocBuilderSignHttp.call(config, 'POST', '/v3/signature_request/cancel/' + DocBuilderSignHttp.pathId(externalId), null, null);
     }
 
     // ---------- Instant updates (Dropbox Sign callbacks) ----------
@@ -110,5 +110,15 @@ global with sharing class DocBuilderSignDropbox implements DocBuilderSignProvide
     global void respond(RestRequest request, RestResponse response) {
         // Dropbox Sign keeps retrying unless it gets exactly this text back.
         response.responseBody = Blob.valueOf('Hello API Event Received');
+    }
+
+    // ---------- Connection test ----------
+
+    global String check(DocBuilderSign.ProviderConfig config) {
+        Map<String, Object> answer = DocBuilderSignHttp.parse(DocBuilderSignHttp.call(config, 'GET', '/v3/account', null, null));
+        Map<String, Object> account = (Map<String, Object>) answer.get('account');
+        String email = account == null ? null : (String) account.get('email_address');
+        Boolean testMode = config.settings.get('testMode') == true;
+        return 'Connected to Dropbox Sign as ' + (email == null ? 'your account' : email) + (testMode ? '. Test mode is on, so requests are free and not legally binding.' : '.');
     }
 }

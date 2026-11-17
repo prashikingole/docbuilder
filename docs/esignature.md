@@ -48,12 +48,26 @@ Open requests are then checked every 15 minutes. `DocBuilderSignSync.unschedule(
 
 **Instant updates (optional).** The provider calls Salesforce the moment something changes.
 
-1. Create a Salesforce Site and give its guest user access to the Apex class `DocBuilderSignWebhookEndpoint`.
-2. Choose a long random secret and add it to the provider's Settings JSON: `{"webhookSecret":"<secret>"}`.
-3. In the provider's own settings, register this address for notifications:
+1. Create a Salesforce Site and give its guest user access to the Apex class `DocBuilderSignWebhookEndpoint`. Give the guest user nothing else: it never reads DocBuilder records.
+2. Choose a long random secret (at least 32 characters). In **Setup › Custom Settings › Signature Webhook Secret › Manage**, add a row whose **Name** is the provider's developer name (for example `DropboxSign`) and whose **Webhook Secret** is the secret.
+3. Choose who checks the provider when a notification arrives. Create a `PlatformEventSubscriberConfig` for the trigger `DocSignNoticeTrigger`, running as an integration user that has the DocBuilder Admin permission set and access to the provider's External Credential principal. Without it, the check runs as the Automated Process user, which cannot use the credential, and the update waits for the scheduled check instead.
+4. In the provider's own settings, register this address for notifications:
    `https://<your site address>/services/apexrest/docbuilder/sign/<ProviderDeveloperName>?token=<secret>`
 
-DocBuilder treats a notification only as a hint about which request changed. It then asks the provider for the real status, so a forged notification cannot mark a document as signed.
+DocBuilder treats a notification only as a hint about which request changed. The public address raises an internal event; the check that follows asks the provider for the real status through its Named Credential, so a forged notification cannot mark a document as signed. Every rejected call gets the same empty `401` response.
+
+## Organization limits
+
+**Setup › Custom Settings › DocBuilder Settings** holds optional limits:
+
+| Setting | Effect |
+|---|---|
+| Allowed Email Domains | Documents can only be emailed to these domains, e.g. `example.com, partner.org` |
+| Org-Wide Email Address | A verified org-wide address that emailed documents are sent from |
+| Max Email Recipients | Most recipients per document (default 10) |
+| Max Bulk Records | Most records per bulk run (default 2000) |
+
+Emailing documents needs the **DocBuilder Email Sender** permission set (or DocBuilder Admin). Bulk generation needs **DocBuilder Bulk Runner** (or DocBuilder Admin).
 
 ## Connect a provider that is not built in
 

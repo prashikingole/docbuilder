@@ -4,6 +4,8 @@
  */
 public with sharing class DocBuilderRenderer {
     static final String CSS =
+        // Column rows come first so the rules of tables nested inside a column still win.
+        'table.cols{width:100%;border-collapse:collapse;table-layout:fixed;margin:0 0 10pt 0}td.col{vertical-align:top;padding:0 10pt 0 0;border:none}' +
         'body{font-family:Helvetica,Arial,sans-serif;font-size:11pt;color:#16202E;line-height:1.45}' +
         'h1{font-size:22pt;margin:0 0 10pt 0}h2{font-size:15pt;margin:14pt 0 6pt 0}h3{font-size:12pt;margin:12pt 0 4pt 0}' +
         'p{margin:0 0 10pt 0}' +
@@ -145,6 +147,8 @@ public with sharing class DocBuilderRenderer {
     /** Renders the template's blocks only, without the surrounding document. */
     public static String renderBody(DocBuilderContext ctx) {
         String html = '';
+        List<String> rowCells = new List<String>();
+        List<Integer> rowSpans = new List<Integer>();
         Integer index = 0;
         for (Object b : ctx.blocks()) {
             Map<String, Object> blk = (Map<String, Object>) b;
@@ -152,38 +156,84 @@ public with sharing class DocBuilderRenderer {
             String id = blk.get('id') == null ? 'block' + index : String.valueOf(blk.get('id'));
             String type = blk.get('type') == null ? 'text' : ((String) blk.get('type')).toLowerCase();
 
-            if (!ctx.passes(blk.get('showIf'), ctx.record, id)) {
-                String fallback = (String) blk.get('elseText');
-                if (String.isNotBlank(fallback)) {
-                    html += '<p>' + ctx.mergeHtml(fallback) + '</p>';
-                }
-                continue;
+            String piece = renderBlock(ctx, blk, id, type);
+            // A block marked "beside" joins the row of the block above it; anything else starts a new row.
+            Boolean beside = blk.get('beside') == true && type != 'pagebreak' && !rowCells.isEmpty();
+            if (!beside) {
+                html += row(rowCells, rowSpans);
+                rowCells = new List<String>();
+                rowSpans = new List<Integer>();
             }
-
-            if (type == 'heading') {
-                Integer level = blk.get('level') == null ? 1 : Integer.valueOf(blk.get('level'));
-                level = Math.max(1, Math.min(3, level));
-                html += '<h' + level + alignClass(blk, '') + '>' + ctx.mergeHtml((String) blk.get('text')) + '</h' + level + '>';
-            } else if (type == 'table') {
-                html += table(ctx, blk);
-            } else if (type == 'terms') {
-                html += terms(ctx, blk, id);
-            } else if (type == 'pagebreak') {
-                html += PAGE_BREAK;
-            } else if (type == 'signature') {
-                html += signature(ctx, blk);
-            } else if (type == 'image') {
-                String image = imageTag(blk.get('contentVersionId'), blk.get('width'), 200);
-                if (image != null) {
-                    html += '<div' + alignClass(blk, 'img') + '>' + image + '</div>';
-                }
-            } else if (blk.get('rich') == true) {
-                html += '<div' + alignClass(blk, 'rich') + '>' + ctx.mergeRich((String) blk.get('text')) + '</div>';
-            } else {
-                html += '<p' + alignClass(blk, '') + '>' + ctx.mergeHtml((String) blk.get('text')) + '</p>';
-            }
+            rowCells.add(piece);
+            rowSpans.add(type == 'pagebreak' ? 100 : spanOf(blk));
         }
-        return html;
+        return html + row(rowCells, rowSpans);
+    }
+
+    /** The block's share of the page width, in percent: 10 to 100, as set by dragging a column divider. */
+    static Integer spanOf(Map<String, Object> blk) {
+        try {
+            Integer span = blk.get('span') == null ? 100 : Decimal.valueOf(String.valueOf(blk.get('span'))).intValue();
+            return span >= 10 && span <= 100 ? span : 100;
+        } catch (Exception e) {
+            return 100;
+        }
+    }
+
+    /**
+     * One row of blocks. A single full-width block is returned as it is; anything else becomes a fixed-layout
+     * table so the PDF engine (CSS 2.1, no flexbox) keeps the columns side by side.
+     */
+    static String row(List<String> cells, List<Integer> spans) {
+        if (cells.isEmpty()) {
+            return '';
+        }
+        if (cells.size() == 1 && spans[0] == 100) {
+            return cells[0];
+        }
+        String out = '<table class="cols"><tr>';
+        Integer used = 0;
+        for (Integer i = 0; i < cells.size(); i++) {
+            used += spans[i];
+            out += '<td class="col" style="width:' + spans[i] + '%">' + cells[i] + '</td>';
+        }
+        if (used < 100) {
+            out += '<td class="col" style="width:' + (100 - used) + '%"></td>';
+        }
+        return out + '</tr></table>';
+    }
+
+    /** One block's HTML, or its fallback text when its rule is not met. */
+    static String renderBlock(DocBuilderContext ctx, Map<String, Object> blk, String id, String type) {
+        if (!ctx.passes(blk.get('showIf'), ctx.record, id)) {
+            String fallback = (String) blk.get('elseText');
+            return String.isNotBlank(fallback) ? '<p>' + ctx.mergeHtml(fallback) + '</p>' : '';
+        }
+        if (type == 'heading') {
+            Integer level = blk.get('level') == null ? 1 : Integer.valueOf(blk.get('level'));
+            level = Math.max(1, Math.min(3, level));
+            return '<h' + level + alignClass(blk, '') + '>' + ctx.mergeHtml((String) blk.get('text')) + '</h' + level + '>';
+        }
+        if (type == 'table') {
+            return table(ctx, blk);
+        }
+        if (type == 'terms') {
+            return terms(ctx, blk, id);
+        }
+        if (type == 'pagebreak') {
+            return PAGE_BREAK;
+        }
+        if (type == 'signature') {
+            return signature(ctx, blk);
+        }
+        if (type == 'image') {
+            String image = imageTag(blk.get('contentVersionId'), blk.get('width'), 200);
+            return image == null ? '' : '<div' + alignClass(blk, 'img') + '>' + image + '</div>';
+        }
+        if (blk.get('rich') == true) {
+            return '<div' + alignClass(blk, 'rich') + '>' + ctx.mergeRich((String) blk.get('text')) + '</div>';
+        }
+        return '<p' + alignClass(blk, '') + '>' + ctx.mergeHtml((String) blk.get('text')) + '</p>';
     }
 
     /**
@@ -262,6 +312,7 @@ public with sharing class DocBuilderRenderer {
     static String table(DocBuilderContext ctx, Map<String, Object> blk) {
         List<Object> columns = DocBuilderContext.asList(blk.get('columns'));
         List<SObject> rows = ctx.rowsFor((String) blk.get('source'), blk.get('rowFilter'));
+        rows = ctx.sorted(rows, (String) blk.get('orderBy'), 'DESC'.equalsIgnoreCase((String) blk.get('orderDirection')));
         if (rows.isEmpty() && blk.get('hideWhenEmpty') == true) {
             return '';
         }
@@ -285,12 +336,15 @@ public with sharing class DocBuilderRenderer {
         for (Object t : DocBuilderContext.asList(blk.get('totals'))) {
             Map<String, Object> total = (Map<String, Object>) t;
             String label = total.get('label') == null ? '' : (String) total.get('label');
-            String value = ctx.formatCalc((String) total.get('calc'), (String) total.get('format'));
+            String value = ctx.formatTableTotal((String) total.get('calc'), (String) total.get('format'), (String) blk.get('source'), rows);
             html += '<tr class="tot">';
             if (columns.size() > 1) {
                 html += '<td class="r" colspan="' + (columns.size() - 1) + '">' + label.escapeHtml4() + '</td>';
+                html += '<td class="r">' + value.escapeHtml4() + '</td></tr>';
+            } else {
+                // A one-column table has no spare cell for the label, so label and value share the cell.
+                html += '<td class="r">' + (String.isBlank(label) ? '' : label.escapeHtml4() + ' ') + value.escapeHtml4() + '</td></tr>';
             }
-            html += '<td class="r">' + value.escapeHtml4() + '</td></tr>';
         }
         return html + '</tbody></table>';
     }

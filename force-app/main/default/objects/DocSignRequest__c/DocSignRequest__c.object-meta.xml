@@ -13,8 +13,9 @@
     <enableHistory>false</enableHistory>
     <enableReports>true</enableReports>
     <enableSearch>true</enableSearch>
+    <externalSharingModel>Private</externalSharingModel>
     <label>Signature Request</label>
     <pluralLabel>Signature Requests</pluralLabel>
     <nameField><displayFormat>SIG-{000000}</displayFormat><label>Request Ref</label><type>AutoNumber</type></nameField>
-    <sharingModel>ReadWrite</sharingModel>
+    <sharingModel>Private</sharingModel>
 </CustomObject>

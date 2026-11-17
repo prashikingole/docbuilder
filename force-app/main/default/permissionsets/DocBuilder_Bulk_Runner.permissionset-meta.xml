@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <customPermissions><enabled>true</enabled><name>DocBuilder_Bulk_Generate</name></customPermissions>
+    <description>Add to DocBuilder User to allow generating documents for many records at once.</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <label>DocBuilder Bulk Runner</label>
+</PermissionSet>

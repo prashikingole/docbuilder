@@ -35,7 +35,7 @@ public with sharing class DocBuilderBulkJob implements Queueable {
             }
         }
 
-        DocGenJob__c job = [SELECT Id, Succeeded__c, Failed__c FROM DocGenJob__c WHERE Id = :jobId FOR UPDATE];
+        DocGenJob__c job = DocBuilderStore.lockJob(jobId);
         job.Succeeded__c = (job.Succeeded__c == null ? 0 : job.Succeeded__c) + succeeded;
         job.Failed__c = (job.Failed__c == null ? 0 : job.Failed__c) + failed;
         Boolean finished = stop >= recordIds.size();
@@ -43,9 +43,10 @@ public with sharing class DocBuilderBulkJob implements Queueable {
         if (finished) {
             job.Finished_On__c = System.now();
         }
-        update job;
+        DocBuilderStore.updateRecord(job);
 
-        // Chained jobs cannot be started from a test.
+        // Chained jobs cannot be started from a test. The run size is capped when the job is created
+        // (DocBuilderPolicy.checkBulk), so the chain always ends.
         if (!finished && !Test.isRunningTest()) {
             System.enqueueJob(new DocBuilderBulkJob(jobId, templateName, recordIds, stop));
         }

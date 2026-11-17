@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DocBuilder Admin Guide</title>
+<style>
+:root {
+  --bg: #f6f6f7; --paper: #ffffff; --ink: #16181d; --ink-2: #3a3d46; --muted: #5f6370;
+  --line: #e2e3e8; --accent: #2f5bff; --accent-ink: #1b3acc; --tint: #e9eeff;
+  --code-bg: #f1f2f5; --warn: #8a4205; --warn-bg: #fff4e5; --good: #17553a; --good-bg: #e6f3ec;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111317; --paper: #181b21; --ink: #eceef3; --ink-2: #c9ccd4; --muted: #9a9fab; --line: #2b2f38;
+    --accent: #8ea6ff; --accent-ink: #b7c6ff; --tint: #1f2740; --code-bg: #20242c; --warn: #f3b46b; --warn-bg: #2d2214;
+    --good: #7fd1a6; --good-bg: #15291f; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.top { background: var(--paper); border-bottom: 1px solid var(--line); }
+.top-inner { max-width: 1120px; margin: 0 auto; padding: 14px max(16px, env(safe-area-inset-left)); display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; justify-content: space-between; }
+.brand { font-weight: 800; letter-spacing: -0.01em; }
+.guides { display: flex; flex-wrap: wrap; gap: 4px; }
+.guides a { color: var(--ink-2); text-decoration: none; padding: 6px 12px; border-radius: 999px; font-size: 14px; }
+.guides a[aria-current="page"] { background: var(--ink); color: var(--paper); font-weight: 600; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 32px max(16px, env(safe-area-inset-left)) 64px; display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 40px; }
+nav.toc { position: sticky; top: 16px; align-self: start; font-size: 14px; }
+nav.toc p { margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+nav.toc ol { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+nav.toc a { color: var(--ink-2); text-decoration: none; }
+nav.toc a:hover { color: var(--accent-ink); }
+main { min-width: 0; }
+.hero { margin-bottom: 32px; }
+.hero h1 { margin: 0 0 8px; font-size: 36px; line-height: 1.15; letter-spacing: -0.02em; text-wrap: balance; }
+.hero p { margin: 0; color: var(--ink-2); max-width: 65ch; font-size: 18px; }
+section { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 24px 28px; margin-bottom: 20px; }
+h2 { margin: 0 0 12px; font-size: 22px; letter-spacing: -0.01em; }
+h3 { margin: 22px 0 8px; font-size: 17px; }
+p, li { max-width: 72ch; }
+ol, ul { padding-left: 22px; }
+li { margin: 4px 0; }
+code, kbd { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 0.9em; background: var(--code-bg); padding: 1px 6px; border-radius: 5px; }
+pre { background: var(--code-bg); padding: 14px 16px; border-radius: 10px; overflow-x: auto; font-size: 14px; line-height: 1.5; }
+pre code { background: none; padding: 0; }
+.table-wrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 13px; color: var(--muted); font-weight: 700; }
+.note, .tip { border-radius: 10px; padding: 12px 16px; margin: 14px 0; }
+.note { background: var(--warn-bg); color: var(--warn); }
+.tip { background: var(--good-bg); color: var(--good); }
+.ui { font-weight: 600; }
+a { color: var(--accent-ink); }
+@media (max-width: 820px) { .wrap { grid-template-columns: 1fr; } nav.toc { position: static; } section { padding: 18px; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <span class="brand">DocBuilder</span>
+    <nav class="guides" aria-label="Guides">
+      <a href="user-guide.html">User guide</a>
+      <a href="admin-guide.html" aria-current="page">Admin guide</a>
+      <a href="developer-guide.html">Developer guide</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#access">Give people access</a></li>
+      <li><a href="#button">Add the Generate Document button</a></li>
+      <li><a href="#template">Create a template</a></li>
+      <li><a href="#fields">Fields and text</a></li>
+      <li><a href="#conditions">Conditions</a></li>
+      <li><a href="#tables">Tables and totals</a></li>
+      <li><a href="#layout">Layout and page</a></li>
+      <li><a href="#terms">Terms and the clause library</a></li>
+      <li><a href="#signers">Signers</a></li>
+      <li><a href="#emails">Email and signing wording</a></li>
+      <li><a href="#languages">Languages</a></li>
+      <li><a href="#versions">Preview, check and activate</a></li>
+      <li><a href="#esign">Set up e-signature</a></li>
+      <li><a href="#status">Signature status updates</a></li>
+      <li><a href="#settings">Organization limits</a></li>
+      <li><a href="#automation">Automation</a></li>
+      <li><a href="#security">Data security</a></li>
+      <li><a href="#trouble">Troubleshooting</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <div class="hero">
+      <h1>DocBuilder admin guide</h1>
+      <p>Setting up DocBuilder: who can use it, where the button appears, how to design templates, and how to connect an e-signature service.</p>
+    </div>
+
+    <section id="access">
+      <h2>Give people access</h2>
+      <p>Give each person <b>one group</b> in <span class="ui">Setup › Users › Permission Set Groups</span>. A group includes the permission sets below, so you don't assign them one by one.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Permission set group</th><th>Includes</th><th>For</th></tr></thead>
+        <tbody>
+          <tr><td>DocBuilder Admins</td><td>DocBuilder Admin, DocBuilder E-Signature Access</td><td>People who build templates and look after DocBuilder. Admins can already email documents and run bulk generation.</td></tr>
+          <tr><td>DocBuilder Users</td><td>DocBuilder User, DocBuilder E-Signature Access</td><td>People who generate documents and send them for signature.</td></tr>
+        </tbody>
+      </table></div>
+      <p>Emailing documents and bulk generation are deliberately not in DocBuilder Users. Give <span class="ui">DocBuilder Email Sender</span> or <span class="ui">DocBuilder Bulk Runner</span> on top of the group only to the users who need them.</p>
+      <p>The permission sets inside the groups:</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Permission set</th><th>Gives</th></tr></thead>
+        <tbody>
+          <tr><td>DocBuilder Admin</td><td>The Template Designer; create and edit templates, clauses and translations; see every generated document, signature request and bulk job; email documents; run bulk generation.</td></tr>
+          <tr><td>DocBuilder User</td><td>Generate documents and send them for signature from active templates. Users see only their own generated documents and signature requests.</td></tr>
+          <tr><td>DocBuilder Email Sender</td><td>Add to DocBuilder User to allow emailing documents.</td></tr>
+          <tr><td>DocBuilder Bulk Runner</td><td>Add to DocBuilder User to allow bulk generation.</td></tr>
+          <tr><td>DocBuilder E-Signature Access</td><td>Lets the user's documents be sent through the e-signature credentials that come with DocBuilder (currently Dropbox Sign). Already in both groups. For credentials you create yourself, such as DocuSign or Adobe Acrobat Sign, create a permission set giving access to that credential's principal and assign it as well.</td></tr>
+        </tbody>
+      </table></div>
+      <p>The DocBuilder app has these tabs: <span class="ui">Template Designer</span>, <span class="ui">Document Templates</span>, <span class="ui">Document Clauses</span>, <span class="ui">Generated Documents</span>, <span class="ui">Signature Requests</span> and <span class="ui">Document Bulk Jobs</span>.</p>
+      <div class="note">Generated documents, signature requests and bulk jobs are private: users see their own. Templates, clauses and translations are read-only for users. Generated records can't be edited or deleted by anyone through the UI, so the audit trail stays intact.</div>
+    </section>
+
+    <section id="button">
+      <h2>Add the Generate Document button</h2>
+      <p>Opportunity comes with a <span class="ui">Generate Document</span> action. For any other object:</p>
+      <ol>
+        <li>Go to <span class="ui">Setup › Object Manager › [object] › Buttons, Links, and Actions › New Action</span>.</li>
+        <li><span class="ui">Action Type</span>: Lightning Web Component. <span class="ui">Lightning Web Component</span>: <code>c:docBuilderGenerateAction</code> (shown as "DocBuilder Generate Document (large dialog)").</li>
+        <li><span class="ui">Label</span>: Generate Document. Save.</li>
+        <li>Add it to the page: in the page layout under <span class="ui">Mobile &amp; Lightning Actions</span>, or as a Dynamic Action in the Lightning App Builder.</li>
+      </ol>
+      <p>The button opens a large dialog with the options on the left and a live preview on the right.</p>
+      <div class="tip">To show where documents land, add the <span class="ui">Files</span> related list to the object's page layout.</div>
+    </section>
+
+    <section id="template">
+      <h2>Create a template</h2>
+      <ol>
+        <li>Open <span class="ui">Template Designer</span> and click <span class="ui">New</span>.</li>
+        <li>Enter a name and the object it's built on, by API name, for example <code>Quote</code>, <code>Opportunity</code> or <code>My_Object__c</code>.</li>
+        <li>Add blocks from the rail on the left: <span class="ui">Text</span>, <span class="ui">Heading</span>, <span class="ui">Table</span>, <span class="ui">Image</span>, <span class="ui">Terms</span>, <span class="ui">Sign</span> and <span class="ui">Break</span> (a page break).</li>
+        <li>Click a block to edit it in <span class="ui">Settings</span> on the right. Use the arrows to move it and the bin to delete it.</li>
+        <li>Use the bar under the page for page setup, header and footer, conditions, signers, email wording, calculated values, and the template's name and languages.</li>
+        <li>Click <span class="ui">Save draft</span>, then <span class="ui">Activate</span> when it's ready.</li>
+      </ol>
+    </section>
+
+    <section id="fields">
+      <h2>Fields and text</h2>
+      <p>Open the <span class="ui">Fields</span> tab and click a field to add it to the selected text. The list is read live from your org. Open <span class="ui">Related records</span> to reach fields on records this one points to, such as Account or Owner. Click a list under <span class="ui">Lists, added as tables</span> to add a table.</p>
+      <p>Fields are stored as tokens you can also type:</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Token</th><th>Prints</th></tr></thead>
+        <tbody>
+          <tr><td><code>{{Name}}</code></td><td>A field on the record.</td></tr>
+          <tr><td><code>{{Account.Name}}</code></td><td>A field on a related record.</td></tr>
+          <tr><td><code>{{calc:Subtotal}}</code></td><td>A calculated value (see Tables and totals).</td></tr>
+          <tr><td><code>{{Amount|currency}}</code></td><td>A field with a format: <code>currency</code>, <code>number</code>, <code>percent</code>, <code>date</code>, <code>upper</code> or <code>lower</code>.</td></tr>
+        </tbody>
+      </table></div>
+      <p>Tick <span class="ui">Rich text</span> on a text block for bold, colours, sizes, lists and alignment. Links, images and scripts are removed from rich text for security.</p>
+    </section>
+
+    <section id="conditions">
+      <h2>Conditions</h2>
+      <h3>Show a whole block only if…</h3>
+      <p>Every block has <span class="ui">Visibility: show this block only if</span>. Add numbered conditions (field, operator, value) and choose how to combine them: leave blank or type <code>AND</code> for all, <code>OR</code> for any, or custom logic such as <code>1 AND (2 OR NOT 3)</code>. Text blocks can show <span class="ui">Otherwise show this text instead</span>.</p>
+      <p>Operators: equals, does not equal, is greater than, is at least, is less than, is at most, contains, is blank, is not blank. Pick the field from the list: the record's own fields, <span class="ui">Calculated: …</span> values, or a related record (for example <span class="ui">Account ›</span>, then Industry in the second list). The value box matches the field: a list for picklists, Yes/No for checkboxes, a date picker for dates.</p>
+
+      <h3>Show part of a text only if…</h3>
+      <ol>
+        <li>Click a field on the page (it is outlined when you point at it).</li>
+        <li>In Settings, click <span class="ui">Show only if…</span>. The field, the comma or space after it and, when it is alone on its line, the line break become one conditional part. It turns green and gets a number.</li>
+        <li>It starts as "has a value". Add conditions to change that, for example City is not Delhi.</li>
+      </ol>
+      <p>A key under the block lists each numbered part and when it prints, in plain words. Click a part or its line in the key to change its text, its rule, or the text printed otherwise, or to make it always print again. Before inserting address lines, set <span class="ui">When you insert a field</span> to <span class="ui">Print it only when it has a value</span> to make each one conditional as you add it.</p>
+      <p>Behind the scenes these are stored as text, which you can also type:</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Write</th><th>Prints the inside</th></tr></thead>
+        <tbody>
+          <tr><td><code>{{#if City}} … {{/if}}</code></td><td>when City has a value</td></tr>
+          <tr><td><code>{{#if not City}} … {{/if}}</code></td><td>when City is empty</td></tr>
+          <tr><td><code>{{#if cond:CityOk}} … {{/if}}</code></td><td>when the named condition CityOk is true</td></tr>
+          <tr><td><code>… {{else}} …</code></td><td>the alternative, inside any of the above</td></tr>
+        </tbody>
+      </table></div>
+      <p>A part with more than a "has a value" check gets its own condition automatically, named Part1, Part2 and so on. It is removed when no text uses it. Use the <span class="ui">Conditions</span> panel in the bar under the page only for a rule shared by several texts.</p>
+    </section>
+
+    <section id="tables">
+      <h2>Tables and totals</h2>
+      <ul>
+        <li><span class="ui">Rows come from</span>: a list on this record (Quote Line Items, Opportunity Products), or a list on a related record, typed as <code>Account.Contacts</code>.</li>
+        <li><span class="ui">Columns</span>: heading, field, alignment and format. Click fields in the Fields tab to add columns.</li>
+        <li><span class="ui">Which rows to include</span>: a rule applied to each row.</li>
+        <li><span class="ui">Sorting</span>: any field, ascending or descending.</li>
+        <li><span class="ui">Summary rows</span>: a label and a calculated value under the table. A count, sum, average, lowest or highest over the table's own list adds up only the rows the table shows, after its row filter. Totals of money or percentages print in the field's format unless you choose another.</li>
+        <li><span class="ui">Add a total for these rows</span>: creates a calculated value over the same list and a summary row showing it.</li>
+        <li><span class="ui">Hide the table when there are no rows</span>.</li>
+      </ul>
+      <p>The same list can feed several tables, each with its own filter, sort and totals; for example, products split into hardware and services.</p>
+      <h3>Calculated values</h3>
+      <p>Under <span class="ui">Calculated values</span>: count, sum, average, lowest or highest over a list, with an optional row filter; or a formula.</p>
+      <p>In the formula bar, start typing a field's name or label and pick it from the suggestions. Related records open with <span class="ui">›</span>, for example Account › Annual Revenue. Under the bar, the formula is read back with field labels; anything that isn't a field or function is marked red with the reason. Pick a record in <span class="ui">Try them with this record</span> to see each value worked out as you type.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>You can use</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td>Fields, numbers, + − * / and brackets</td><td><code>Amount * (1 - Discount__c / 100)</code></td></tr>
+          <tr><td>Values worked out above this one</td><td><code>calc:Subtotal - 100</code></td></tr>
+          <tr><td>ROUND, ABS, CEILING, FLOOR, MIN, MAX</td><td><code>ROUND(calc:Net * 1.18, 2)</code></td></tr>
+          <tr><td>IF with comparisons = != &lt; &lt;= &gt; &gt;=, and AND, OR, NOT</td><td><code>IF(AND(Amount &gt; 10000, Probability &gt;= 50), 0.1, 0)</code></td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="layout">
+      <h2>Layout and page</h2>
+      <ul>
+        <li><b>Side by side</b>: drag a block by its label onto the left or right edge of another block; a blue bar shows where it will land. Up to four blocks fit in a row and share the width equally. Drag the line between two blocks to change their widths; it snaps to 5% steps and to thirds. Drop a block above or below a row to make it full width again. Without a mouse: select a block and use <span class="ui">Width</span> and <span class="ui">Place beside the block above</span> under <span class="ui">Layout</span>, or focus a dividing line and press ← or →.</li>
+        <li><b>Page setup</b>: A4, US Letter or US Legal; portrait or landscape; narrow, normal or wide margins.</li>
+        <li><b>Header</b>: a logo and text repeated on every page. <b>Footer</b>: text and optional "Page 1 of 3".</li>
+        <li><b>Watermark</b>: text across each page, optionally only when a rule is met.</li>
+        <li><b>Images</b>: upload in the Image block's settings and set its width and alignment.</li>
+      </ul>
+      <div class="note">PDFs are produced by Salesforce's PDF engine, which supports simple layouts. Keep designs to headings, text, tables, images and columns.</div>
+    </section>
+
+    <section id="terms">
+      <h2>Terms and the clause library</h2>
+      <p>A <span class="ui">Terms</span> block prints a numbered list of clauses. Each clause can have its own rule; numbering closes up when a clause is left out.</p>
+      <p>Shared clauses live on the <span class="ui">Document Clauses</span> tab: Name, Category, Text (fields allowed), Sort Order, Active, Locked Wording, and Rule JSON. A Terms block that names a category in <span class="ui">Also include library clauses in category</span> prints every active clause in that category, so one change updates every template.</p>
+    </section>
+
+    <section id="signers">
+      <h2>Signers</h2>
+      <p>Open <span class="ui">Signers</span> in the bar under the page, add signers in signing order, and add a <span class="ui">Sign</span> block where they sign. For each signer choose <span class="ui">Who signs</span>:</p>
+      <ul>
+        <li><b>A person on this record</b>: pick a user, contact or lead lookup, such as Owner or Contact.</li>
+        <li><b>Everyone in a related list</b>: for example every Opportunity Contact Role, with an optional filter such as Role equals Decision Maker. People without an email address are left out. Up to 50 people.</li>
+        <li><b>Typed in or from fields</b>: type a name and email, or field tokens.</li>
+      </ul>
+      <p>The Sign block prints one signing area per person, three to a row, with optional date and printed name. Without e-signature, these are lines to sign by hand.</p>
+    </section>
+
+    <section id="emails">
+      <h2>Email and signing wording</h2>
+      <p>Under <span class="ui">Emails</span> in the bar under the page, set the subject and message used when this document is emailed, and when it is sent for signature. Fields and conditions work here too. They prefill the Generate Document dialog, where senders can still change them.</p>
+    </section>
+
+    <section id="languages">
+      <h2>Languages</h2>
+      <ol>
+        <li>Under <span class="ui">Name and languages</span>, list language codes, for example <code>en, fr, de</code>.</li>
+        <li>Switch to <span class="ui">Translate</span>, choose a language, and translate each piece of text. Keep the field tokens exactly as they are; you can move them within the sentence.</li>
+        <li>Text left blank prints in the default language. If the original text changes later, its translation is flagged as out of date.</li>
+      </ol>
+      <p>Field labels and picklist values come from Salesforce's Translation Workbench, not from DocBuilder.</p>
+    </section>
+
+    <section id="versions">
+      <h2>Preview, check and activate</h2>
+      <ul>
+        <li><span class="ui">Preview</span>: pick any record to see exactly what it would produce. Uses your unsaved changes and saves nothing.</li>
+        <li><span class="ui">Check fields</span> (in the bar under the page): confirms every field the template uses exists and is readable.</li>
+        <li><span class="ui">Save draft</span>: saves without affecting users. Editing an active template creates a new draft version.</li>
+        <li><span class="ui">Activate</span>: makes the draft live. The previous version is archived, never deleted. Users always generate from the active version.</li>
+      </ul>
+    </section>
+
+    <section id="esign">
+      <h2>Set up e-signature</h2>
+      <p>Each service is a row in <span class="ui">Setup › Custom Metadata Types › Signature Provider › Manage Records</span>: Label, Apex Class, Named Credential, Button Label, Sort Order, Screen Style (<code>form</code>, <code>steps</code> or <code>desk</code>), Custom Screen Flow, Settings JSON and Active. Only active providers are offered to users. The <span class="ui">Test provider</span> sends nothing and reports everyone as signed; deactivate it before going live.</p>
+      <p>Test any provider, active or not, with <span class="ui">Test connection</span> under <span class="ui">Signers</span> in the Template Designer.</p>
+      <p><b>Where settings and secrets are kept.</b> Each store holds something different:</p>
+      <ul>
+        <li><b>Signature Provider (custom metadata):</b> which services are on and how they behave. No secrets.</li>
+        <li><b>External Credential:</b> the API key or sign-in for each service, encrypted by Salesforce.</li>
+        <li><b>Signature Webhook Secret (custom setting):</b> only the password that the service sends back to Salesforce with each instant update. It is a separate value you make up; it is not the API key.</li>
+      </ul>
+
+      <h3>Dropbox Sign</h3>
+      <ol>
+        <li>In Dropbox Sign, open <span class="ui">Settings › API</span> and copy your API key. A free account works in test mode.</li>
+        <li>In Salesforce: <span class="ui">Setup › Named Credentials › External Credentials</span> › <code>DocBuilder_DropboxSign</code>. The package installs this, its principal <code>DropboxSignKey</code>, and the Named Credential <code>DocBuilder_DropboxSign</code>; only your key is missing.</li>
+        <li>Under <span class="ui">Principals</span>, edit <code>DropboxSignKey</code>. Under <span class="ui">Authentication Parameters</span>, add <b>Name</b> <code>ApiKey</code> with your key as the <b>Value</b>. The name must be exactly <code>ApiKey</code>. Salesforce encrypts the key; nobody can read it back, including DocBuilder's code.</li>
+        <li>Check that everyone who will send has the <span class="ui">DocBuilder Users</span> or <span class="ui">DocBuilder Admins</span> group. Both include <span class="ui">DocBuilder E-Signature Access</span>, which gives access to this credential.</li>
+        <li>Run <span class="ui">Test connection</span>. It should say "Connected to Dropbox Sign as …".</li>
+        <li>On the Dropbox Sign provider row, set Settings JSON to <code>{"testMode":true}</code> while testing, and tick <span class="ui">Active</span>. Remove <code>testMode</code> once you have a paid API plan; test requests are free but not legally binding.</li>
+      </ol>
+
+      <h3>DocuSign</h3>
+      <ol>
+        <li>Create an integration (app) in DocuSign and an OAuth External Credential and Named Credential in Salesforce, named <code>DocBuilder_DocuSign</code>, pointing at your account's base URL, for example <code>https://demo.docusign.net</code>.</li>
+        <li>Set the provider's Settings JSON to <code>{"accountId":"&lt;your API account ID&gt;"}</code>.</li>
+        <li>Give senders access to the credential's principal, test the connection, and activate.</li>
+      </ol>
+
+      <h3>Adobe Acrobat Sign</h3>
+      <ol>
+        <li>Create a Named Credential <code>DocBuilder_AdobeSign</code> pointing at your regional API address, for example <code>https://api.na1.adobesign.com</code>, signed in with OAuth or an integration key.</li>
+        <li>Give senders access, test the connection, and activate.</li>
+      </ol>
+
+      <h3>Other services</h3>
+      <p>A developer can connect any service with one Apex class; see the <a href="developer-guide.html#providers">developer guide</a>. You can also replace the signing screen for a provider with your own screen flow, named in Custom Screen Flow.</p>
+    </section>
+
+    <section id="status">
+      <h2>Signature status updates</h2>
+      <p><b>Every 15 minutes</b>: the package starts this check when it is installed or upgraded. You can see it in <span class="ui">Setup › Scheduled Jobs</span> as <i>DocBuilder signature status :00</i>, <i>:15</i>, <i>:30</i> and <i>:45</i>. If those jobs are missing, start them from the Developer Console's Anonymous Apex window:</p>
+      <pre><code>DocBuilderSignSync.schedule();</code></pre>
+      <p><code>DocBuilderSignSync.unschedule();</code> stops it.</p>
+      <p><b>Instantly</b> (optional), when the service notifies Salesforce:</p>
+      <ol>
+        <li>Create a Salesforce Site and give its guest user access to the Apex class <code>DocBuilderSignWebhookEndpoint</code> only.</li>
+        <li>In <span class="ui">Setup › Custom Settings › Signature Webhook Secret › Manage</span>, add a row named after the provider (for example <code>DropboxSign</code>) with a long random <span class="ui">Webhook Secret</span> made of letters and digits.</li>
+        <li>Ask a developer to create a <code>PlatformEventSubscriberConfig</code> for the trigger <code>DocSignNoticeTrigger</code>, running as an integration user with DocBuilder Admin and access to the provider's credential.</li>
+        <li>Register <code>https://&lt;site address&gt;/services/apexrest/docbuilder/sign/&lt;ProviderName&gt;?token=&lt;secret&gt;</code> as the callback address in the provider's settings.</li>
+      </ol>
+    </section>
+
+    <section id="settings">
+      <h2>Organization limits</h2>
+      <p>In <span class="ui">Setup › Custom Settings › DocBuilder Settings › Manage</span>:</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Setting</th><th>Effect</th></tr></thead>
+        <tbody>
+          <tr><td>Allowed Email Domains</td><td>Documents can only be emailed to these domains, for example <code>example.com, partner.org</code>. Blank allows any.</td></tr>
+          <tr><td>Org-Wide Email Address</td><td>A verified org-wide address documents are sent from.</td></tr>
+          <tr><td>Max Email Recipients</td><td>Most recipients per document. Default 10.</td></tr>
+          <tr><td>Max Bulk Records</td><td>Most records per bulk run. Default 2,000.</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section id="automation">
+      <h2>Automation</h2>
+      <p>In Flow Builder, under the DocBuilder category:</p>
+      <ul>
+        <li><b>Generate Document</b>: template name, record ID, save to the record, optional email to, subject and body.</li>
+        <li><b>Send Document for Signature</b>: template name, record ID, provider, optional language, subject, message, and signer emails.</li>
+      </ul>
+      <p>Bulk generation for many records runs from Apex; progress shows on the <span class="ui">Document Bulk Jobs</span> tab.</p>
+    </section>
+
+    <section id="security">
+      <h2>Data security</h2>
+      <ul>
+        <li>Documents are filled with the sender's own access: a field they can't see is not printed.</li>
+        <li>Each generated document keeps a snapshot of the values and rule results it used, visible to its owner and admins.</li>
+        <li>Errors show users a plain message. Technical detail goes to <span class="ui">Error Detail</span>, visible only to admins.</li>
+        <li>E-signature notifications are only hints; DocBuilder always asks the service for the real status.</li>
+      </ul>
+    </section>
+
+    <section id="trouble">
+      <h2>Troubleshooting</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Symptom</th><th>Cause and fix</th></tr></thead>
+        <tbody>
+          <tr><td>"The template uses a field that does not exist or that you cannot see"</td><td>Run Check fields. Fix the field name, or give the user access to the field.</td></tr>
+          <tr><td>"Something went wrong…"</td><td>Open the Generated Document or Signature Request and read <span class="ui">Error Detail</span>.</td></tr>
+          <tr><td>Only "Send for signature (test)" is offered</td><td>No real provider is active. Set one up and tick Active.</td></tr>
+          <tr><td>Test connection: "Field DocBuilder_DropboxSign.ApiKey does not exist"</td><td>Add the <code>ApiKey</code> authentication parameter to the principal.</td></tr>
+          <tr><td>Test connection: "refused the request (HTTP 401)"</td><td>The key or sign-in is wrong, or the user lacks the credential permission set.</td></tr>
+          <tr><td>Signature status never changes</td><td>Schedule the status check, or click Check status now.</td></tr>
+          <tr><td>The button is missing on a record</td><td>Add the action to the page layout, and make sure an active template exists for that object.</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

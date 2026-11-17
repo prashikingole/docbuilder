@@ -38,24 +38,48 @@ public with sharing class DocBuilderController {
         public List<DocBuilderSign.ProviderOption> providers = new List<DocBuilderSign.ProviderOption>();
         @AuraEnabled
         public List<DocBuilderSign.Signer> signers = new List<DocBuilderSign.Signer>();
+        /** Whether the user may email documents. The dialog hides the email choice otherwise. */
+        @AuraEnabled
+        public Boolean canEmail = false;
+        /** The template's wording for this record, used to prefill the dialog. Null where the template has none. */
+        @AuraEnabled
+        public String emailSubject;
+        @AuraEnabled
+        public String emailBody;
+        @AuraEnabled
+        public String signSubject;
+        @AuraEnabled
+        public String signMessage;
     }
 
-    /** The active signature providers, and the template's signers worked out for this record. */
+    /** The active signature providers, the template's signers, and its email and signing wording, worked out for this record. */
     @AuraEnabled
     public static SignOptions getSignOptions(Id templateId, Id recordId) {
         SignOptions options = new SignOptions();
+        options.canEmail = DocBuilderPolicy.canEmail();
         options.providers = DocBuilderSign.activeProviders();
-        if (templateId == null || options.providers.isEmpty()) {
+        if (templateId == null || recordId == null) {
             return options;
         }
         try {
-            DocTemplate__c template = [SELECT Base_Object__c, Active_Version__r.Body_JSON__c FROM DocTemplate__c WHERE Id = :templateId];
+            DocTemplate__c template = [SELECT Base_Object__c, Active_Version__r.Body_JSON__c FROM DocTemplate__c WHERE Id = :templateId WITH USER_MODE];
             Map<String, Object> body = (Map<String, Object>) JSON.deserializeUntyped(template.Active_Version__r.Body_JSON__c);
-            if (!DocBuilderContext.asList(body.get('signers')).isEmpty()) {
-                // Only the signers are needed, so the rest of the template is left out of the query.
-                DocBuilderContext ctx = new DocBuilderContext(template.Base_Object__c, recordId, new Map<String, Object>{ 'signers' => body.get('signers') }, null);
+            Boolean hasSigners = !DocBuilderContext.asList(body.get('signers')).isEmpty() && !options.providers.isEmpty();
+            if (hasSigners || body.get('messages') != null) {
+                // Only the signers and messages are needed, so the rest of the template is left out of the query.
+                Map<String, Object> partial = new Map<String, Object>{ 'messages' => body.get('messages'), 'conditions' => body.get('conditions') };
+                if (hasSigners) {
+                    partial.put('signers', body.get('signers'));
+                }
+                DocBuilderContext ctx = new DocBuilderContext(template.Base_Object__c, recordId, partial, null);
                 ctx.load();
-                options.signers = ctx.resolveSigners();
+                if (hasSigners) {
+                    options.signers = ctx.resolveSigners();
+                }
+                options.emailSubject = ctx.message('emailSubject');
+                options.emailBody = ctx.message('emailBody');
+                options.signSubject = ctx.message('signSubject');
+                options.signMessage = ctx.message('signMessage');
             }
         } catch (Exception e) {
             options.signers = new List<DocBuilderSign.Signer>();
@@ -131,6 +155,7 @@ public with sharing class DocBuilderController {
                 (SELECT Id, Signer_Name__c, Email__c, Role__c, Routing_Order__c, Status__c, Signed_On__c FROM Signers__r ORDER BY Routing_Order__c, Name)
             FROM DocSignRequest__c
             WHERE Id = :requestId
+            WITH USER_MODE
         ];
         view.signers = view.request.Signers__r;
         view.sentBy = view.request.CreatedBy.Name;
@@ -141,7 +166,7 @@ public with sharing class DocBuilderController {
         }
         Set<String> fileIds = new Set<String>{ view.request.Unsigned_Content_Version_Id__c, view.request.Signed_Content_Version_Id__c };
         fileIds.remove(null);
-        for (ContentVersion file : [SELECT Id, ContentDocumentId FROM ContentVersion WHERE Id IN :fileIds]) {
+        for (ContentVersion file : [SELECT Id, ContentDocumentId FROM ContentVersion WHERE Id IN :fileIds WITH USER_MODE]) {
             if (file.Id == view.request.Signed_Content_Version_Id__c) {
                 view.signedDocumentId = file.ContentDocumentId;
             } else {

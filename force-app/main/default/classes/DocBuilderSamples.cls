@@ -6,7 +6,7 @@ public with sharing class DocBuilderSamples {
     public static final String QUOTE_NAME = 'Sample Opportunity Quote';
 
     public static Id installOpportunityQuote() {
-        List<DocTemplate__c> existing = [SELECT Id FROM DocTemplate__c WHERE Name = :QUOTE_NAME LIMIT 1];
+        List<DocTemplate__c> existing = [SELECT Id FROM DocTemplate__c WHERE Name = :QUOTE_NAME WITH USER_MODE LIMIT 1];
         if (!existing.isEmpty()) {
             return existing[0].Id;
         }
@@ -16,7 +16,7 @@ public with sharing class DocBuilderSamples {
     /** Creates an active template with one active version. */
     public static Id createTemplate(String name, String baseObject, String fileNamePattern, String bodyJson) {
         DocTemplate__c template = new DocTemplate__c(Name = name, Base_Object__c = baseObject, File_Name_Pattern__c = fileNamePattern, Status__c = 'Draft');
-        insert template;
+        insert as user template;
         DocTemplateVersion__c version = new DocTemplateVersion__c(
             Template__c = template.Id,
             Version_Number__c = 1,
@@ -24,10 +24,10 @@ public with sharing class DocBuilderSamples {
             Activated_On__c = System.now(),
             Body_JSON__c = bodyJson
         );
-        insert version;
+        insert as user version;
         template.Active_Version__c = version.Id;
         template.Status__c = 'Active';
-        update template;
+        update as user template;
         return template.Id;
     }
 

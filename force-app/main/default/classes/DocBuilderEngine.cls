@@ -24,6 +24,10 @@ public with sharing class DocBuilderEngine {
                 throw new DocBuilder.DocBuilderException('A record ID is required.');
             }
             String recordObject = String.valueOf(req.recordId.getSObjectType());
+            // Checked before any work, so a refused email never produces a document either.
+            if (req.emailTo != null && !req.emailTo.isEmpty()) {
+                req.emailTo = DocBuilderPolicy.checkRecipients(req.emailTo);
+            }
 
             List<DocTemplate__c> templates = new List<DocTemplate__c>{ loadTemplate(req.templateId, req.templateName) };
             if (req.additionalTemplateIds != null) {
@@ -37,7 +41,7 @@ public with sharing class DocBuilderEngine {
                 Part part = new Part();
                 part.template = template;
                 parts.add(part);
-                part.version = [SELECT Id, Version_Number__c, Body_JSON__c FROM DocTemplateVersion__c WHERE Id = :template.Active_Version__c];
+                part.version = [SELECT Id, Version_Number__c, Body_JSON__c FROM DocTemplateVersion__c WHERE Id = :template.Active_Version__c WITH USER_MODE];
                 if (recordObject != template.Base_Object__c) {
                     throw new DocBuilder.DocBuilderException(
                         'Template "' + template.Name + '" is built on ' + template.Base_Object__c + ' but the record is a ' + recordObject + '.'
@@ -55,13 +59,25 @@ public with sharing class DocBuilderEngine {
                 bodies.add(DocBuilderRenderer.renderBody(part.ctx));
             }
 
+            // Wording the sender left blank comes from the template, with this record's fields filled in.
+            DocBuilderContext lead = parts[0].ctx;
+            if (String.isBlank(req.emailSubject)) {
+                req.emailSubject = lead.message('emailSubject');
+            }
+            if (String.isBlank(req.emailBody)) {
+                req.emailBody = lead.message('emailBody');
+            }
+            res.signSubject = lead.message('signSubject');
+            res.signMessage = lead.message('signMessage');
+
             String html = DocBuilderRenderer.document(String.join(bodies, DocBuilderRenderer.PAGE_BREAK), draft, parts[0].ctx);
             // Blob.toPdf is not available in test context, so tests store the HTML itself.
+            // This changes only the file format, never what is checked or who can see it.
             file = Test.isRunningTest() ? Blob.valueOf(html) : Blob.toPdf(html);
             fileName = buildFileName(parts[0].template, parts[0].ctx, draft);
         } catch (Exception e) {
-            res.errorMessage = e.getMessage();
-            res.documentId = logFailure(req, parts, e.getMessage());
+            res.errorMessage = DocBuilderSignHttp.userMessage(e);
+            res.documentId = logFailure(req, parts, e);
             return res;
         }
 
@@ -71,8 +87,9 @@ public with sharing class DocBuilderEngine {
             if (req.saveToRecord != false) {
                 cv.FirstPublishLocationId = req.recordId;
             }
-            insert cv;
-            cv = [SELECT Id, ContentDocumentId FROM ContentVersion WHERE Id = :cv.Id];
+            // The file is the user's own: created with their access, and shared through the record it is attached to.
+            insert as user cv;
+            cv = [SELECT Id, ContentDocumentId FROM ContentVersion WHERE Id = :cv.Id WITH USER_MODE];
 
             Part first = parts[0];
             GeneratedDocument__c doc = new GeneratedDocument__c(
@@ -94,7 +111,7 @@ public with sharing class DocBuilderEngine {
             Boolean hasEmail = req.emailTo != null && !req.emailTo.isEmpty();
             String emailStatus = hasEmail ? sendEmail(req, cv.Id, fileName) : null;
             doc.Email_Status__c = emailStatus;
-            insert doc;
+            DocBuilderStore.insertRecord(doc);
 
             List<DocDelivery__c> deliveries = new List<DocDelivery__c>();
             if (req.saveToRecord != false) {
@@ -114,7 +131,7 @@ public with sharing class DocBuilderEngine {
                     )
                 );
             }
-            insert deliveries;
+            DocBuilderStore.insertRecords(deliveries);
 
             res.success = true;
             res.documentId = doc.Id;
@@ -125,8 +142,8 @@ public with sharing class DocBuilderEngine {
             res.signers = first.ctx.resolveSigners();
         } catch (Exception e) {
             Database.rollback(sp);
-            res.errorMessage = e.getMessage();
-            res.documentId = logFailure(req, parts, e.getMessage());
+            res.errorMessage = DocBuilderSignHttp.userMessage(e);
+            res.documentId = logFailure(req, parts, e);
         }
         return res;
     }
@@ -157,6 +174,7 @@ public with sharing class DocBuilderEngine {
                 SELECT Id, Name, Base_Object__c, File_Name_Pattern__c, Active_Version__c, Status__c, Default_Language__c
                 FROM DocTemplate__c
                 WHERE Id = :templateId
+                WITH USER_MODE
                 LIMIT 1
             ];
         } else {
@@ -164,6 +182,7 @@ public with sharing class DocBuilderEngine {
                 SELECT Id, Name, Base_Object__c, File_Name_Pattern__c, Active_Version__c, Status__c, Default_Language__c
                 FROM DocTemplate__c
                 WHERE Name = :templateName
+                WITH USER_MODE
                 ORDER BY CreatedDate DESC
                 LIMIT 1
             ];
@@ -209,6 +228,10 @@ public with sharing class DocBuilderEngine {
         try {
             Messaging.SingleEmailMessage message = new Messaging.SingleEmailMessage();
             message.setToAddresses(req.emailTo);
+            Id sender = DocBuilderPolicy.senderAddressId();
+            if (sender != null) {
+                message.setOrgWideEmailAddressId(sender);
+            }
             message.setSubject(String.isBlank(req.emailSubject) ? fileName.removeEnd('.pdf') : req.emailSubject);
             message.setPlainTextBody(String.isBlank(req.emailBody) ? 'Please find the document attached.' : req.emailBody);
             message.setEntityAttachments(new List<String>{ contentVersionId });
@@ -220,7 +243,8 @@ public with sharing class DocBuilderEngine {
         }
     }
 
-    static Id logFailure(DocBuilder.Request req, List<Part> parts, String message) {
+    static Id logFailure(DocBuilder.Request req, List<Part> parts, Exception failure) {
+        String message = DocBuilderSignHttp.userMessage(failure);
         try {
             Part first = parts.isEmpty() ? null : parts[0];
             GeneratedDocument__c doc = new GeneratedDocument__c(
@@ -232,9 +256,10 @@ public with sharing class DocBuilderEngine {
                 Channel__c = channelOf(req),
                 Generated_On__c = System.now(),
                 Job__c = req == null ? null : req.jobId,
-                Error_Message__c = message == null ? null : message.left(32000)
+                Error_Message__c = message == null ? null : message.left(32000),
+                Error_Detail__c = DocBuilderSignHttp.detailOf(failure).left(32000)
             );
-            insert doc;
+            DocBuilderStore.insertRecord(doc);
             return doc.Id;
         } catch (Exception e) {
             return null;

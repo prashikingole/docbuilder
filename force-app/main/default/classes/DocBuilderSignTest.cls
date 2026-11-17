@@ -1,5 +1,10 @@
 @IsTest
 private class DocBuilderSignTest {
+    @TestSetup
+    static void grantPermissions() {
+        DocBuilderTestUtil.grantAdmin();
+    }
+
     /** Answers provider calls by matching part of the URL. Records what was sent. */
     class Router implements HttpCalloutMock {
         Map<String, String> answers = new Map<String, String>();
@@ -143,6 +148,126 @@ private class DocBuilderSignTest {
         System.assertEquals(4, [SELECT COUNT() FROM CronTrigger WHERE CronJobDetail.Name LIKE 'DocBuilder signature status%']);
         DocBuilderSignSync.unschedule();
         System.assertEquals(0, [SELECT COUNT() FROM CronTrigger WHERE CronJobDetail.Name LIKE 'DocBuilder signature status%']);
+    }
+
+    @IsTest
+    static void signersComeFromRecordsAndListsAndEmptyRowsAreIgnored() {
+        Opportunity opp = makeOpportunity();
+        List<Contact> people = new List<Contact>{
+            new Contact(AccountId = opp.AccountId, FirstName = 'Priya', LastName = 'Nair', Email = 'priya@example.com'),
+            new Contact(AccountId = opp.AccountId, FirstName = 'No', LastName = 'Email'),
+            new Contact(AccountId = opp.AccountId, FirstName = 'Ivan', LastName = 'Influencer', Email = 'ivan@example.com')
+        };
+        insert people;
+        insert new List<OpportunityContactRole>{
+            new OpportunityContactRole(OpportunityId = opp.Id, ContactId = people[0].Id, Role = 'Decision Maker'),
+            new OpportunityContactRole(OpportunityId = opp.Id, ContactId = people[1].Id, Role = 'Decision Maker'),
+            new OpportunityContactRole(OpportunityId = opp.Id, ContactId = people[2].Id, Role = 'Influencer')
+        };
+        Map<String, Object> body = new Map<String, Object>{
+            'signers' => new List<Object>{
+                new Map<String, Object>{
+                    'role' => 'Customer',
+                    'source' => 'OpportunityContactRoles',
+                    'nameField' => 'Contact.Name',
+                    'emailField' => 'Contact.Email',
+                    'filter' => new Map<String, Object>{ 'conditions' => new List<Object>{ new Map<String, Object>{ 'field' => 'Role', 'op' => 'ne', 'value' => 'Influencer' } } }
+                },
+                new Map<String, Object>{ 'role' => 'Company', 'name' => '{{Owner.Name}}', 'email' => '{{Owner.Email}}' },
+                new Map<String, Object>{ 'role' => '', 'name' => '', 'email' => '' }
+            },
+            'blocks' => new List<Object>{ new Map<String, Object>{ 'id' => 's', 'type' => 'signature' } }
+        };
+        // The template's own object name as a prefix is accepted, as SOQL allows.
+        Id templateId = DocBuilderSamples.createTemplate('From Records', 'Opportunity', '{{Opportunity.Name}} - {{Account.Name}}', JSON.serialize(body));
+
+        List<DocBuilderSign.Signer> signers = DocBuilderController.getSignOptions(templateId, opp.Id).signers;
+        System.assertEquals(2, signers.size(), 'Priya from the list, the owner, and nobody for the empty row, the influencer or the contact without email');
+        System.assertEquals('Priya Nair', signers[0].name);
+        System.assertEquals('priya@example.com', signers[0].email);
+        System.assertEquals('Customer', signers[0].role);
+        System.assertEquals('Company', signers[1].role);
+        System.assertEquals(UserInfo.getUserEmail(), signers[1].email);
+
+        DocBuilder.Request req = new DocBuilder.Request();
+        req.templateId = templateId;
+        req.recordId = opp.Id;
+        DocBuilder.Result res = DocBuilder.generate(req);
+        System.assert(res.success, res.errorMessage);
+        System.assertEquals('Deal B - Harbor Sample Co.pdf', res.fileName);
+        System.assert(fileText(res.contentVersionId).contains('Customer, Priya Nair'));
+
+        // A wrong field name is explained instead of a generic failure.
+        Id wrongId = DocBuilderSamples.createTemplate('Wrong', 'Opportunity', '{{Name}}', '{"blocks":[{"id":"a","type":"text","text":"{{Quote.Name}}"}]}');
+        req.templateId = wrongId;
+        res = DocBuilder.generate(req);
+        System.assertEquals(false, res.success);
+        System.assert(res.errorMessage.contains('Quote'), res.errorMessage);
+        System.assert(!res.errorMessage.contains('Something went wrong'), res.errorMessage);
+    }
+
+    @IsTest
+    static void templateWordingAndConnectionTests() {
+        Opportunity opp = makeOpportunity();
+        Map<String, Object> body = new Map<String, Object>{
+            'messages' => new Map<String, Object>{
+                'emailSubject' => 'Your quote for {{Name}}',
+                'emailBody' => 'Hello {{Account.Name}},\nyour quote is attached.',
+                'signSubject' => 'Please sign {{Name}}',
+                'signMessage' => '{{#if Amount}}Total {{Amount}}{{/if}}'
+            },
+            'signers' => new List<Object>{ new Map<String, Object>{ 'role' => 'Customer', 'name' => 'Pat', 'email' => 'pat@example.com' } },
+            'blocks' => new List<Object>{ new Map<String, Object>{ 'id' => 's', 'type' => 'signature' } }
+        };
+        Id templateId = DocBuilderSamples.createTemplate('Worded', 'Opportunity', null, JSON.serialize(body));
+
+        DocBuilderController.SignOptions options = DocBuilderController.getSignOptions(templateId, opp.Id);
+        System.assertEquals('Your quote for Deal B', options.emailSubject);
+        System.assertEquals('Hello Harbor Sample Co,\nyour quote is attached.', options.emailBody);
+        System.assertEquals('Please sign Deal B', options.signSubject);
+        System.assert(options.signMessage.startsWith('Total '), options.signMessage);
+
+        DocBuilder.Request req = new DocBuilder.Request();
+        req.templateId = templateId;
+        req.recordId = opp.Id;
+        req.emailTo = new List<String>{ 'someone@example.com' };
+        DocBuilder.Result res = DocBuilder.generate(req);
+        System.assert(res.success, res.errorMessage);
+        System.assertEquals('Your quote for Deal B', req.emailSubject, 'The template subject is used when the sender leaves it blank');
+        System.assertEquals('Please sign Deal B', res.signSubject);
+
+        Test.startTest();
+        DocBuilderSign.SendRequest send = new DocBuilderSign.SendRequest();
+        send.templateId = templateId;
+        send.recordId = opp.Id;
+        send.providerName = 'TestProvider';
+        Id requestId = DocBuilderSign.send(send);
+        Test.stopTest();
+        DocSignRequest__c sent = [SELECT Subject__c, Message__c FROM DocSignRequest__c WHERE Id = :requestId];
+        System.assertEquals('Please sign Deal B', sent.Subject__c);
+        System.assert(sent.Message__c.startsWith('Total '));
+
+        // Connection tests
+        Router router = new Router();
+        router.answers.put('GET callout:Unit_Credential/v3/account', '{"account":{"email_address":"me@example.com"}}');
+        router.answers.put('GET callout:Unit_Credential/restapi/v2.1/accounts/ACC1', '{"accountName":"Acme"}');
+        router.answers.put('GET callout:Unit_Credential/api/rest/v6/users/me', '{"email":"admin@example.com"}');
+        Test.setMock(HttpCalloutMock.class, router);
+        DocBuilderSign.testSettings.put('DropboxSign', new Map<String, Object>{ 'testMode' => true });
+        DocBuilderSign.testSettings.put('DocuSign', new Map<String, Object>{ 'accountId' => 'ACC1' });
+        DocBuilderSign.testSettings.put('AdobeSign', new Map<String, Object>());
+        DocBuilderDesignerController.ConnectionResult ok = DocBuilderDesignerController.testProvider('DropboxSign');
+        System.assert(ok.ok && ok.message.contains('me@example.com') && ok.message.contains('Test mode'), ok.message);
+        System.assert(DocBuilderDesignerController.testProvider('DocuSign').message.contains('Acme'));
+        System.assert(DocBuilderDesignerController.testProvider('AdobeSign').message.contains('admin@example.com'));
+        System.assert(DocBuilderDesignerController.testProvider('TestProvider').message.contains('no connection test'));
+        DocBuilderDesignerController.ConnectionResult missing = DocBuilderDesignerController.testProvider('Not_A_Provider');
+        System.assertEquals(false, missing.ok);
+        router.statusCode = 401;
+        DocBuilderDesignerController.ConnectionResult refused = DocBuilderDesignerController.testProvider('DropboxSign');
+        System.assertEquals(false, refused.ok);
+        System.assert(refused.message.contains('HTTP 401'), refused.message);
+        System.assert(DocBuilderDesignerController.listProviders().size() >= 4);
     }
 
     @IsTest
@@ -322,8 +447,10 @@ private class DocBuilderSignTest {
         try {
             provider.getStatus(env.config, 'ENV-1');
             System.assert(false);
-        } catch (DocBuilder.DocBuilderException e) {
-            System.assert(e.getMessage().contains('answered 401'), e.getMessage());
+        } catch (DocBuilderSignHttp.ProviderException e) {
+            System.assert(e.getMessage().contains('HTTP 401'), e.getMessage());
+            System.assertNotEquals(null, e.detail, 'The provider response is kept for administrators');
+            System.assert(!e.getMessage().contains(e.detail), 'The provider response is not in the user-facing message');
         }
         env.config.namedCredential = null;
         try {
@@ -438,10 +565,13 @@ private class DocBuilderSignTest {
     @IsTest
     static void webhookTriggersAnImmediateStatusCheck() {
         Opportunity opp = makeOpportunity();
-        DocBuilderSign.testSettings.put('DropboxSign', new Map<String, Object>{ 'webhookSecret' => 'S3cret' });
-        DocBuilderSign.testSettings.put('AdobeSign', new Map<String, Object>{ 'webhookSecret' => 'S3cret' });
-        DocBuilderSign.testSettings.put('DocuSign', new Map<String, Object>{ 'webhookSecret' => 'S3cret', 'accountId' => 'ACC1' });
-        DocBuilderSign.testSettings.put('TestProvider', new Map<String, Object>{ 'webhookSecret' => 'S3cret' });
+        DocBuilderSign.testSettings.put('DropboxSign', new Map<String, Object>());
+        DocBuilderSign.testSettings.put('DocuSign', new Map<String, Object>{ 'accountId' => 'ACC1' });
+        List<DocSignSecret__c> secrets = new List<DocSignSecret__c>();
+        for (String provider : new List<String>{ 'DropboxSign', 'AdobeSign', 'DocuSign', 'TestProvider' }) {
+            secrets.add(new DocSignSecret__c(Name = provider, Webhook_Secret__c = 'S3cret'));
+        }
+        insert secrets;
 
         DocSignRequest__c request = new DocSignRequest__c(Provider__c = 'DropboxSign', External_Id__c = 'SR-9', Status__c = 'Sent', Record_Id__c = opp.Id, File_Name__c = 'Quote.pdf');
         insert request;
@@ -456,14 +586,22 @@ private class DocBuilderSignTest {
         System.assertEquals(401, callWebhook('POST', 'DropboxSign', 'wrong', '{}', null).statusCode);
         System.assertEquals(401, callWebhook('POST', 'DropboxSign', 's3cret', '{}', null).statusCode, 'The token is case-sensitive');
         System.assertEquals(401, callWebhook('POST', 'DropboxSign', null, '{}', null).statusCode);
-        System.assertEquals(400, callWebhook('POST', 'Not_A_Provider', 'S3cret', '{}', null).statusCode);
-        System.assertEquals(404, callWebhook('POST', 'TestProvider', 'S3cret', '{}', null).statusCode);
+        // Every rejection looks the same to the caller.
+        System.assertEquals(401, callWebhook('POST', 'Not_A_Provider', 'S3cret', '{}', null).statusCode);
+        System.assertEquals(401, callWebhook('POST', 'TestProvider', 'S3cret', '{}', null).statusCode, 'A provider without notification support is refused the same way');
+        System.assertEquals(401, callWebhook('POST', 'A_Provider_Name_That_Is_Far_Too_Long_For_A_Setting', 'S3cret', '{}', null).statusCode);
+        System.assertEquals(null, RestContext.response.responseBody, 'A rejection carries no detail');
+        System.assert(!DocBuilderSignWebhookEndpoint.authorised('DropboxSign', ''));
+        System.assert(DocBuilderSignWebhookEndpoint.authorised('DropboxSign', 'S3cret'));
 
         Test.startTest();
         RestResponse response = callWebhook('POST', 'DropboxSign', 'S3cret', '{"event":{"event_type":"signature_request_all_signed"},"signature_request":{"signature_request_id":"SR-9"}}', null);
+        // The endpoint only raises an event; the handler then checks the provider in the background.
+        System.assertEquals('Sent', [SELECT Status__c FROM DocSignRequest__c WHERE Id = :request.Id].Status__c, 'Nothing is changed by the notification itself');
+        Test.getEventBus().deliver();
         Test.stopTest();
 
-        System.assertEquals(200, response.statusCode, DocBuilderSignWebhookEndpoint.lastError);
+        System.assertEquals(200, response.statusCode, 'Endpoint error: ' + DocBuilderSignWebhookEndpoint.lastError);
         System.assertEquals('Hello API Event Received', response.responseBody.toString());
         DocSignRequest__c after = [SELECT Status__c, Signed_Content_Version_Id__c FROM DocSignRequest__c WHERE Id = :request.Id];
         System.assertEquals('Completed', after.Status__c, 'The notification triggered a real status check with the provider');

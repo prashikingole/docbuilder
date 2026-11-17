@@ -120,10 +120,27 @@
                             <template lwc:if={noBlocks}>
                                 <p class="hint centered">This template is empty. Add a block from the rail on the left, or open Fields on the right and click a field.</p>
                             </template>
-                            <template for:each={blockViews} for:item="b">
-                                <div key={b.id} class={b.cls} data-id={b.id} role="button" tabindex="0" onclick={handleSelect} onkeydown={handleBlockKey}>
+                            <template for:each={blockRows} for:item="row">
+                            <div key={row.key} class="brow">
+                            <template for:each={row.cells} for:item="b">
+                                <div
+                                    key={b.id}
+                                    class={b.cls}
+                                    style={b.cellStyle}
+                                    data-id={b.id}
+                                    role="button"
+                                    tabindex="0"
+                                    draggable="true"
+                                    onclick={handleSelect}
+                                    onkeydown={handleBlockKey}
+                                    ondragstart={handleDragStart}
+                                    ondragover={handleDragOver}
+                                    ondrop={handleDrop}
+                                    ondragend={handleDragEnd}
+                                >
+                                    <template lwc:if={b.livePct}><span class="live-pct">{b.livePct}</span></template>
                                     <div class="block-head">
-                                        <span class="block-type">{b.label}</span>
+                                        <span class="block-type" title="Drag to move. Drop on the left or right edge of another block to place them side by side.">⠿ {b.label}</span>
                                         <span class="block-actions">
                                             <lightning-button-icon icon-name="utility:arrowup" variant="bare" alternative-text="Move up" data-id={b.id} data-delta="-1" disabled={b.first} onclick={handleMove}></lightning-button-icon>
                                             <lightning-button-icon icon-name="utility:arrowdown" variant="bare" alternative-text="Move down" data-id={b.id} data-delta="1" disabled={b.last} onclick={handleMove}></lightning-button-icon>
@@ -142,12 +159,22 @@
                                     </template>
                                     <template lwc:if={b.isHeading}>
                                         <div class={b.textCls}>
-                                            <template for:each={b.segs} for:item="s"><span key={s.key} class={s.cls}>{s.text}</span></template>
+                                            <template for:each={b.textSegs} for:item="s"><span key={s.key} class={s.cls} data-id={b.id} data-kind={s.kind} data-num={s.num} data-start={s.start} data-end={s.end} data-path={s.path} onclick={handleSegClick}>{s.text}</span></template>
                                         </div>
                                     </template>
                                     <template lwc:if={b.isText}>
                                         <div class={b.textCls}>
-                                            <template for:each={b.segs} for:item="s"><span key={s.key} class={s.cls}>{s.text}</span></template>
+                                            <template for:each={b.textSegs} for:item="s"><span key={s.key} class={s.cls} data-id={b.id} data-kind={s.kind} data-num={s.num} data-start={s.start} data-end={s.end} data-path={s.path} onclick={handleSegClick}>{s.text}</span></template>
+                                        </div>
+                                    </template>
+                                    <template lwc:if={b.hasLegend}>
+                                        <div class="cond-legend">
+                                            <template for:each={b.legend} for:item="l">
+                                                <button key={l.key} type="button" class={l.cls} data-id={b.id} data-num={l.num} onclick={handleLegendClick}>
+                                                    <span class="cond-badge">{l.label}</span>
+                                                    <span>{l.text}</span>
+                                                </button>
+                                            </template>
                                         </div>
                                     </template>
                                     <template lwc:if={b.isRich}>
@@ -224,6 +251,25 @@
                                         </template>
                                     </template>
                                 </div>
+                                <template lwc:if={b.handleAfter}>
+                                    <div
+                                        key={b.handleKey}
+                                        class="col-handle"
+                                        role="separator"
+                                        aria-orientation="vertical"
+                                        aria-label="Drag to change the widths of the blocks on each side"
+                                        tabindex="0"
+                                        data-left={b.id}
+                                        data-right={b.nextId}
+                                        onpointerdown={handleResizeStart}
+                                        onpointermove={handleResizeMove}
+                                        onpointerup={handleResizeEnd}
+                                        onpointercancel={handleResizeEnd}
+                                        onkeydown={handleResizeKey}
+                                    ></div>
+                                </template>
+                            </template>
+                            </div>
                             </template>
                             <template lwc:if={hasFooter}>
                                 <div class="page-edge page-footer">
@@ -243,7 +289,11 @@
                             <span class="dock-sep" aria-hidden="true"></span>
                             <button type="button" class="dock-btn" data-panel="calc" onclick={handleDock}>Calculated values</button>
                             <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" data-panel="conditions" onclick={handleDock}>Conditions</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
                             <button type="button" class="dock-btn" data-panel="signers" onclick={handleDock}>Signers</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" data-panel="messages" onclick={handleDock}>Emails</button>
                             <span class="dock-sep" aria-hidden="true"></span>
                             <button type="button" class="dock-btn" data-panel="template" onclick={handleDock}>Name and languages</button>
                             <span class="dock-sep" aria-hidden="true"></span>
@@ -287,11 +337,48 @@
                                     <lightning-input type="checkbox" label="Include the signer's printed name" checked={sel.showName} data-prop="showName" onchange={handleProp}></lightning-input>
                                     <button type="button" class="link-btn" onclick={openSigners}>Edit who signs this document</button>
                                 </template>
+                                <template lwc:if={partView}>
+                                    <div class="part-card">
+                                        <template lwc:if={partView.isField}>
+                                            <span class="eyebrow">Field in this text</span>
+                                            <h3 class="part-title">{partView.label}</h3>
+                                            <p class="hint">Make it conditional to leave it out when it's empty or when a rule isn't met. The comma or line break after it is left out with it.</p>
+                                            <div class="row-line wrap">
+                                                <button type="button" class="btn small primary" onclick={handleMakeConditional}>Show only if…</button>
+                                                <button type="button" class="btn small" onclick={handleRemoveField}>Remove this field</button>
+                                            </div>
+                                        </template>
+                                        <template lwc:if={partView.isSection}>
+                                            <span class="eyebrow">Conditional part</span>
+                                            <h3 class="part-title"><span class="cond-badge">{partView.num}</span> {partView.title}</h3>
+                                            <lightning-textarea label="Text in this part" value={partView.ifText} onchange={handlePartText}></lightning-textarea>
+                                            <p class="part-label">Print it only when</p>
+                                            <template lwc:if={partView.sharedHint}><p class="hint">{partView.sharedHint}</p></template>
+                                            <c-doc-builder-rule rule={partView.rule} object-name={baseObjectName} calc-names={calcNameList} onrulechange={handlePartRule}></c-doc-builder-rule>
+                                            <lightning-textarea label="Otherwise print (optional)" value={partView.elseText} onchange={handlePartElse}></lightning-textarea>
+                                            <div class="row-line wrap">
+                                                <button type="button" class="btn small" onclick={handlePartUnwrap}>Always print it</button>
+                                                <button type="button" class="btn small" onclick={handlePartDelete}>Delete this part</button>
+                                            </div>
+                                        </template>
+                                        <button type="button" class="link-btn" onclick={handlePartClose}>Back to the whole block</button>
+                                    </div>
+                                </template>
                                 <template lwc:if={selIsTextual}>
                                     <template lwc:if={selIsPlain}>
                                         <lightning-textarea label="Text" value={sel.text} data-prop="text" class="tall" onchange={handleProp} onfocus={handleFocus}></lightning-textarea>
+                                        <p class="hint">Click a field on the page to make it conditional. Conditional parts show as green with a number; click one to change when it prints.</p>
                                     </template>
-                                    <button type="button" class="link-btn" data-tab="fields" onclick={handlePanelTab}>Insert a field into this text</button>
+                                    <div class="soft">
+                                        <lightning-combobox
+                                            label="When you insert a field"
+                                            options={wrapOptions}
+                                            value={wrapMode}
+                                            field-level-help="Choose 'Print it only when it has a value' before clicking fields such as address lines, so empty ones are left out."
+                                            onchange={handleWrapMode}
+                                        ></lightning-combobox>
+                                        <button type="button" class="link-btn" data-tab="fields" onclick={handlePanelTab}>Insert a field into this text</button>
+                                    </div>
                                     <template lwc:if={selIsHeading}>
                                         <lightning-combobox label="Size" options={levelOptions} value={sel.level} data-prop="level" onchange={handleProp}></lightning-combobox>
                                     </template>
@@ -319,11 +406,16 @@
                                     <button type="button" class="link-btn" data-tab="fields" onclick={handlePanelTab}>Add columns from the field list</button>
 
                                     <h3>Which rows to include</h3>
-                                    <c-doc-builder-rule rule={sel.rowFilter} data-target="rowFilter" onrulechange={handleRule}></c-doc-builder-rule>
+                                    <c-doc-builder-rule rule={sel.rowFilter} object-name={tableObject} data-target="rowFilter" onrulechange={handleRule}></c-doc-builder-rule>
 
                                     <h3>Sorting</h3>
                                     <div class="row-line">
-                                        <lightning-input type="text" label="Sort by field" value={sel.orderBy} data-prop="orderBy" onchange={handleProp}></lightning-input>
+                                        <template lwc:if={hasSortOptions}>
+                                            <lightning-combobox label="Sort by field" options={sortOptions} value={sel.orderBy} data-prop="orderBy" onchange={handleProp}></lightning-combobox>
+                                        </template>
+                                        <template lwc:else>
+                                            <lightning-input type="text" label="Sort by field" value={sel.orderBy} data-prop="orderBy" onchange={handleProp}></lightning-input>
+                                        </template>
                                         <lightning-combobox label="Direction" options={directionOptions} value={sel.orderDirection} data-prop="orderDirection" onchange={handleProp}></lightning-combobox>
                                     </div>
 
@@ -335,7 +427,11 @@
                                             <lightning-button-icon icon-name="utility:delete" alternative-text="Remove summary row" class="row-remove" data-list="totals" data-index={t.index} onclick={handleRemoveRow}></lightning-button-icon>
                                         </div>
                                     </template>
-                                    <button type="button" class="btn small" data-list="totals" onclick={handleAddRow}>Add summary row</button>
+                                    <div class="row-line wrap">
+                                        <button type="button" class="btn small" data-list="totals" onclick={handleAddRow}>Add summary row</button>
+                                        <button type="button" class="btn small" onclick={handleMatchingTotal}>Add a total for these rows</button>
+                                    </div>
+                                    <p class="hint">A summary row that totals this table's list adds up only the rows the table shows, after its row filter. "Add a total for these rows" creates one for you.</p>
                                     <lightning-input type="checkbox" class="slds-m-top_small" label="Hide the table when there are no rows" checked={sel.hideWhenEmpty} data-prop="hideWhenEmpty" onchange={handleProp}></lightning-input>
                                 </template>
 
@@ -349,7 +445,7 @@
                                                 <lightning-button-icon icon-name="utility:delete" alternative-text="Remove clause" class="row-remove" data-list="items" data-index={i.index} onclick={handleRemoveRow}></lightning-button-icon>
                                             </div>
                                             <p class="hint">Print this clause only if</p>
-                                            <c-doc-builder-rule rule={i.showIf} data-target="item" data-index={i.index} onrulechange={handleRule}></c-doc-builder-rule>
+                                            <c-doc-builder-rule rule={i.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="item" data-index={i.index} onrulechange={handleRule}></c-doc-builder-rule>
                                         </div>
                                     </template>
                                     <button type="button" class="btn small" data-list="items" onclick={handleAddRow}>Add clause</button>
@@ -365,10 +461,19 @@
                                     ></lightning-input>
                                 </template>
 
+                                <template lwc:if={selCanLayout}>
+                                    <h3>Layout</h3>
+                                    <div class="row-line">
+                                        <lightning-combobox label="Width" options={selSpanOptions} value={selSpan} data-prop="span" onchange={handleSpan}></lightning-combobox>
+                                    </div>
+                                    <lightning-input type="checkbox" label="Place beside the block above" checked={sel.beside} disabled={selIsFirst} data-prop="beside" onchange={handleProp}></lightning-input>
+                                    <p class="hint">Easiest on the page: drag a block onto the left or right edge of another to put them side by side (up to four in a row), then drag the line between them to change the widths.</p>
+                                </template>
+
                                 <template lwc:if={selHasRule}>
                                     <h3>Visibility: show this block only if</h3>
                                     <div class="soft">
-                                        <c-doc-builder-rule rule={sel.showIf} data-target="showIf" onrulechange={handleRule}></c-doc-builder-rule>
+                                        <c-doc-builder-rule rule={sel.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="showIf" onrulechange={handleRule}></c-doc-builder-rule>
                                     </div>
                                     <template lwc:if={selIsTextual}>
                                         <lightning-textarea label="Otherwise show this text instead" value={sel.elseText} data-prop="elseText" onchange={handleProp} onfocus={handleFocus}></lightning-textarea>
@@ -443,7 +548,7 @@
                                     <lightning-input type="text" label="Watermark text" placeholder="e.g. CONFIDENTIAL" value={watermark.text} data-section="watermark" data-prop="text" data-focus="watermarkText" onchange={handlePage} onfocus={handlePageFocus}></lightning-input>
                                     <p class="hint">Show the watermark only if (leave empty to show it always)</p>
                                     <div class="soft">
-                                        <c-doc-builder-rule rule={watermark.showIf} onrulechange={handleWatermarkRule}></c-doc-builder-rule>
+                                        <c-doc-builder-rule rule={watermark.showIf} object-name={baseObjectName} calc-names={calcNameList} onrulechange={handleWatermarkRule}></c-doc-builder-rule>
                                     </div>
                                 </template>
 
@@ -455,18 +560,84 @@
                                                 <lightning-input type="text" label="Role" placeholder="e.g. Customer" value={s.role} data-list="signers" data-index={s.index} data-prop="role" onchange={handleRow}></lightning-input>
                                                 <lightning-button-icon icon-name="utility:delete" alternative-text="Remove signer" class="row-remove" data-list="signers" data-index={s.index} onclick={handleRemoveRow}></lightning-button-icon>
                                             </div>
-                                            <lightning-input type="text" label="Name" value={s.name} data-list="signers" data-index={s.index} data-prop="name" onchange={handleRow} onfocus={handleSignerFocus}></lightning-input>
-                                            <lightning-input type="text" label="Email" value={s.email} data-list="signers" data-index={s.index} data-prop="email" onchange={handleRow} onfocus={handleSignerFocus}></lightning-input>
+                                            <lightning-combobox label="Who signs" options={signerModeOptions} value={s.mode} data-index={s.index} onchange={handleSignerMode}></lightning-combobox>
+                                            <template lwc:if={s.isPerson}>
+                                                <lightning-combobox
+                                                    label="Person on this record"
+                                                    placeholder="Choose a person"
+                                                    options={personOptions}
+                                                    value={s.person}
+                                                    data-index={s.index}
+                                                    field-level-help="Name and email are read from this person when the document is sent."
+                                                    onchange={handleSignerPerson}
+                                                ></lightning-combobox>
+                                            </template>
+                                            <template lwc:if={s.isList}>
+                                                <lightning-combobox label="Everyone in this list" placeholder="Choose a related list" options={signerListOptions} value={s.source} data-index={s.index} onchange={handleSignerList}></lightning-combobox>
+                                                <div class="row-line">
+                                                    <lightning-input type="text" label="Name field" placeholder="e.g. Contact.Name" value={s.nameField} data-list="signers" data-index={s.index} data-prop="nameField" onchange={handleRow}></lightning-input>
+                                                    <lightning-input type="text" label="Email field" placeholder="e.g. Contact.Email" value={s.emailField} data-list="signers" data-index={s.index} data-prop="emailField" onchange={handleRow}></lightning-input>
+                                                </div>
+                                                <p class="hint">Only include rows where (leave empty for everyone). People without an email address are left out.</p>
+                                                <c-doc-builder-rule rule={s.filter} object-name={s.ruleObject} data-index={s.index} onrulechange={handleSignerFilter}></c-doc-builder-rule>
+                                            </template>
+                                            <template lwc:if={s.isTyped}>
+                                                <lightning-input type="text" label="Name" value={s.name} data-list="signers" data-index={s.index} data-prop="name" onchange={handleRow} onfocus={handleSignerFocus}></lightning-input>
+                                                <lightning-input type="text" label="Email" value={s.email} data-list="signers" data-index={s.index} data-prop="email" onchange={handleRow} onfocus={handleSignerFocus}></lightning-input>
+                                                <p class="hint">Type them, or click a box and pick a field from the Fields tab.</p>
+                                            </template>
                                         </div>
                                     </template>
                                     <button type="button" class="btn small" data-list="signers" onclick={handleAddRow}>Add signer</button>
                                     <template lwc:if={noSigners}>
                                         <p class="hint">With no signers, a signature block prints one plain line and the document cannot be sent for e-signature.</p>
                                     </template>
+
+                                    <h3>Signature providers</h3>
+                                    <p class="hint">Only providers switched on in Setup › Custom Metadata Types › Signature Provider appear when sending. Test a provider here before switching it on.</p>
+                                    <template for:each={providerRows} for:item="p">
+                                        <div key={p.name} class="row-card">
+                                            <div class="row-line provider-line">
+                                                <span class="provider-name">{p.label}</span>
+                                                <span class={p.stateCls}>{p.state}</span>
+                                                <button type="button" class="btn small" data-name={p.name} onclick={handleTestProvider}>Test connection</button>
+                                            </div>
+                                            <template lwc:if={p.result}><p class={p.resultCls}>{p.result}</p></template>
+                                        </div>
+                                    </template>
+                                </template>
+
+                                <template lwc:if={isPanelMessages}>
+                                    <p class="hint">The wording used when this document is emailed or sent for signature. Click a box, then pick fields from the Fields tab; conditions such as {ifExample} work too. Senders can still change it before sending.</p>
+                                    <h3>Emailing the PDF</h3>
+                                    <lightning-input type="text" label="Subject" placeholder="Defaults to the file name" value={messages.emailSubject} data-key="emailSubject" onchange={handleMessage} onfocus={handleMessageFocus}></lightning-input>
+                                    <lightning-textarea label="Message" placeholder="Please find the document attached." value={messages.emailBody} data-key="emailBody" onchange={handleMessage} onfocus={handleMessageFocus}></lightning-textarea>
+                                    <h3>Sending for signature</h3>
+                                    <lightning-input type="text" label="Subject" placeholder="Defaults to: Please sign, plus the file name" value={messages.signSubject} data-key="signSubject" onchange={handleMessage} onfocus={handleMessageFocus}></lightning-input>
+                                    <lightning-textarea label="Message to signers" value={messages.signMessage} data-key="signMessage" onchange={handleMessage} onfocus={handleMessageFocus}></lightning-textarea>
+                                </template>
+
+                                <template lwc:if={isPanelConditions}>
+                                    <p class="hint">You don't need this to make a field conditional: click the field on the page and choose "Show only if…". Use shared conditions only when the same rule is reused in several texts; use one as {condExample} … {endIfExample}.</p>
+                                    <template for:each={conditionRows} for:item="c">
+                                        <div key={c.index} class="row-card">
+                                            <div class="row-line">
+                                                <lightning-input type="text" label="Name" placeholder="e.g. NotDelhi" value={c.name} data-list="conditions" data-index={c.index} data-prop="name" onchange={handleRow}></lightning-input>
+                                                <lightning-button-icon icon-name="utility:delete" alternative-text="Remove condition" class="row-remove" data-list="conditions" data-index={c.index} onclick={handleRemoveRow}></lightning-button-icon>
+                                            </div>
+                                            <p class="hint">True when</p>
+                                            <c-doc-builder-rule rule={c.rule} object-name={baseObjectName} calc-names={calcNameList} data-index={c.index} onrulechange={handleConditionRule}></c-doc-builder-rule>
+                                            <p class="hint">In text: {c.usage}</p>
+                                        </div>
+                                    </template>
+                                    <button type="button" class="btn small" data-list="conditions" onclick={handleAddRow}>Add condition</button>
                                 </template>
 
                                 <template lwc:if={isPanelCalc}>
-                                    <p class="hint">Totals over a list, or a formula on the record. Place one in text by typing calc: and its name inside double braces.</p>
+                                    <p class="hint">Totals over a list, or a formula on the record. Place one in text by picking it in the Fields tab or typing calc: and its name inside double braces.</p>
+                                    <lightning-record-picker class="record-picker" label="Try them with this record" placeholder="Search records" object-api-name={baseObjectName} value={previewRecordId} onchange={handleCalcRecord}></lightning-record-picker>
+                                    <template lwc:if={calcNoRecord}><p class="hint">Pick a record to see each value worked out as you type.</p></template>
+                                    <template lwc:if={calcPreviewProblem}><div class="health bad" role="alert">{calcPreviewProblem}</div></template>
                                     <template for:each={calcRows} for:item="c">
                                         <div key={c.index} class="row-card">
                                             <div class="row-line">
@@ -475,14 +646,57 @@
                                             </div>
                                             <lightning-combobox label="Type" options={calcTypeOptions} value={c.type} data-list="calculations" data-index={c.index} data-prop="type" onchange={handleRow}></lightning-combobox>
                                             <template lwc:if={c.isRollup}>
-                                                <lightning-input type="text" label="Over the list" placeholder="e.g. OpportunityLineItems" value={c.source} data-list="calculations" data-index={c.index} data-prop="source" onchange={handleRow}></lightning-input>
+                                                <lightning-combobox label="Over the list" placeholder="Choose a related list" options={c.listOptions} value={c.source} data-list="calculations" data-index={c.index} data-prop="source" onchange={handleRow}></lightning-combobox>
                                             </template>
                                             <template lwc:if={c.needsField}>
-                                                <lightning-input type="text" label="Field to total" placeholder="e.g. TotalPrice" value={c.field} data-list="calculations" data-index={c.index} data-prop="field" onchange={handleRow}></lightning-input>
+                                                <template lwc:if={c.fieldPicker}>
+                                                    <lightning-combobox label="Field to total" placeholder="Choose a number field" options={c.numericOptions} value={c.field} data-list="calculations" data-index={c.index} data-prop="field" onchange={handleRow}></lightning-combobox>
+                                                </template>
+                                                <template lwc:else>
+                                                    <lightning-input type="text" label="Field to total" placeholder="e.g. TotalPrice" value={c.field} data-list="calculations" data-index={c.index} data-prop="field" onchange={handleRow}></lightning-input>
+                                                </template>
+                                            </template>
+                                            <template lwc:if={c.isRollup}>
+                                                <p class="hint">Only count rows where (leave empty for all rows)</p>
+                                                <c-doc-builder-rule rule={c.filter} object-name={c.childObject} data-index={c.index} onrulechange={handleCalcFilter}></c-doc-builder-rule>
                                             </template>
                                             <template lwc:if={c.isFormula}>
-                                                <lightning-input type="text" label="Formula" placeholder="e.g. Amount * 0.9 or calc:Subtotal - 100" field-level-help="Numbers, record fields, earlier calculated values as calc:Name, and + - * / with brackets." value={c.expression} data-list="calculations" data-index={c.index} data-prop="expression" onchange={handleRow}></lightning-input>
+                                                <div class="fx-wrap">
+                                                    <label class="fx-label" for={c.fxInputId}>Formula</label>
+                                                    <div class="fx-bar">
+                                                        <span class="fx-mark" aria-hidden="true">fx</span>
+                                                        <input
+                                                            id={c.fxInputId}
+                                                            class="fx-input"
+                                                            type="text"
+                                                            autocomplete="off"
+                                                            spellcheck="false"
+                                                            placeholder="Start typing a field, e.g. Amount * 0.9"
+                                                            value={c.expression}
+                                                            data-index={c.index}
+                                                            oninput={handleFormulaInput}
+                                                            onkeydown={handleFormulaKey}
+                                                            onblur={handleFormulaBlur}
+                                                        />
+                                                    </div>
+                                                    <template lwc:if={c.showSuggest}>
+                                                        <div class="fx-suggest" role="listbox" aria-label="Suggestions">
+                                                            <template for:each={c.suggestions} for:item="s">
+                                                                <div key={s.key} class={s.cls} role="option" data-i={s.i} onmousedown={handleSuggestPick}>
+                                                                    <span class="fx-item-label">{s.label}</span>
+                                                                    <span class="fx-item-detail">{s.detail}</span>
+                                                                </div>
+                                                            </template>
+                                                        </div>
+                                                    </template>
+                                                    <div class="fx-read" aria-label="The formula as it reads">
+                                                        <template for:each={c.fxSegs} for:item="s"><span key={s.key} class={s.cls} title={s.title}>{s.text}</span></template>
+                                                    </div>
+                                                    <template lwc:if={c.fxProblem}><p class="fx-problem">{c.fxProblem}</p></template>
+                                                    <p class="hint">{fxHelp}</p>
+                                                </div>
                                             </template>
+                                            <template lwc:if={c.hasResult}><div class="fx-result">{c.result}</div></template>
                                             <lightning-combobox label="Show as" options={formatOptions} value={c.format} data-list="calculations" data-index={c.index} data-prop="format" onchange={handleRow}></lightning-combobox>
                                         </div>
                                     </template>

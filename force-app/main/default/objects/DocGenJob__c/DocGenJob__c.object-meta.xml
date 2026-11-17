@@ -5,8 +5,9 @@
     <enableHistory>false</enableHistory>
     <enableReports>true</enableReports>
     <enableSearch>true</enableSearch>
+    <externalSharingModel>Private</externalSharingModel>
     <label>Document Bulk Job</label>
     <pluralLabel>Document Bulk Jobs</pluralLabel>
     <nameField><displayFormat>JOB-{00000}</displayFormat><label>Job Ref</label><type>AutoNumber</type></nameField>
-    <sharingModel>ReadWrite</sharingModel>
+    <sharingModel>Private</sharingModel>
 </CustomObject>

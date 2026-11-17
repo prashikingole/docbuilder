@@ -36,7 +36,7 @@ global with sharing class DocBuilderSignFlowAction {
             Output output = new Output();
             output.success = false;
             try {
-                List<DocTemplate__c> templates = [SELECT Id FROM DocTemplate__c WHERE Name = :input.templateName AND Status__c = 'Active' ORDER BY CreatedDate DESC LIMIT 1];
+                List<DocTemplate__c> templates = [SELECT Id FROM DocTemplate__c WHERE Name = :input.templateName AND Status__c = 'Active' WITH USER_MODE ORDER BY CreatedDate DESC LIMIT 1];
                 if (templates.isEmpty()) {
                     throw new DocBuilder.DocBuilderException('No active template named "' + input.templateName + '".');
                 }

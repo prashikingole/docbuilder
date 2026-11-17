@@ -5,8 +5,9 @@
     <enableHistory>false</enableHistory>
     <enableReports>true</enableReports>
     <enableSearch>true</enableSearch>
+    <externalSharingModel>Private</externalSharingModel>
     <label>Document Template</label>
     <pluralLabel>Document Templates</pluralLabel>
     <nameField><label>Template Name</label><type>Text</type></nameField>
-    <sharingModel>ReadWrite</sharingModel>
+    <sharingModel>Read</sharingModel>
 </CustomObject>
