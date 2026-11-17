@@ -1,0 +1,179 @@
+<template>
+    <div class="shell">
+        <template lwc:if={busy}>
+            <lightning-spinner alternative-text="Sending" size="medium"></lightning-spinner>
+        </template>
+
+        <div class="topline">
+            <div class="heading">
+                <h2>Send for signature</h2>
+                <span class="quiet">{documentName} · with {providerLabel}</span>
+            </div>
+            <div class="seg" role="group" aria-label="Screen layout">
+                <template for:each={styleButtons} for:item="b">
+                    <button key={b.value} type="button" class={b.cls} data-style={b.value} aria-pressed={b.pressed} onclick={handleStyle}>{b.label}</button>
+                </template>
+            </div>
+        </div>
+
+        <template lwc:if={error}>
+            <div class="alert" role="alert">{error}</div>
+        </template>
+
+        <!-- ===================== GUIDED STEPS ===================== -->
+        <template lwc:if={isSteps}>
+            <ol class="stepper">
+                <template for:each={stepItems} for:item="s">
+                    <li key={s.number}>
+                        <button type="button" class={s.cls} data-step={s.number} aria-current={s.current} onclick={handleStepClick}>
+                            <span class="stepper-num">
+                                <template lwc:if={s.done}>
+                                    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7.5l3 3 7-7"></path></svg>
+                                </template>
+                                <template lwc:else>{s.number}</template>
+                            </span>
+                            {s.label}
+                        </button>
+                    </li>
+                </template>
+            </ol>
+
+            <template lwc:if={onSigners}>
+                <div class="pane">
+                    <h3 class="big">Who needs to sign?</h3>
+                    <p class="quiet">Filled in from the record. Change anything before it goes out.</p>
+                    <template lwc:if={noSigners}>
+                        <div class="alert">This template has no signers. Add them under Signers in the Template Designer.</div>
+                    </template>
+                    <template for:each={rows} for:item="r">
+                        <div key={r.key} class="signer-card">
+                            <span class={r.numCls}>{r.num}</span>
+                            <template lwc:if={r.viewing}>
+                                <div class="signer-text">
+                                    <span class="strong">{r.shownName}</span>
+                                    <span class="email">{r.shownEmail}</span>
+                                    <span class="quiet small">{r.title}</span>
+                                </div>
+                                <button type="button" class="btn" data-index={r.index} onclick={handleEdit}>Edit</button>
+                            </template>
+                            <template lwc:if={r.editing}>
+                                <div class="signer-edit">
+                                    <span class="quiet small">{r.title}</span>
+                                    <lightning-input type="text" label="Name" value={r.name} data-index={r.index} data-prop="name" onchange={handleSigner}></lightning-input>
+                                    <lightning-input type="email" label="Email" value={r.email} data-index={r.index} data-prop="email" onchange={handleSigner}></lightning-input>
+                                </div>
+                                <button type="button" class="btn" onclick={handleDone}>Done</button>
+                            </template>
+                        </div>
+                    </template>
+                    <template lwc:if={severalSigners}>
+                        <fieldset class="order">
+                            <legend>Signing order</legend>
+                            <label class="choice"><input type="radio" name="order" value="sequence" checked={inSequence} onchange={handleOrder} /><span>One after the other</span></label>
+                            <label class="choice"><input type="radio" name="order" value="together" checked={together} onchange={handleOrder} /><span>Everyone at once</span></label>
+                        </fieldset>
+                    </template>
+                </div>
+            </template>
+
+            <template lwc:if={onMessage}>
+                <div class="pane">
+                    <h3 class="big">What should the email say?</h3>
+                    <p class="quiet">Both are optional. Without a subject, signers see "Please sign" followed by the document name.</p>
+                    <lightning-input type="text" label="Subject" value={subject} data-field="subject" onchange={handleText}></lightning-input>
+                    <lightning-textarea label="Message to signers" value={message} data-field="message" onchange={handleText}></lightning-textarea>
+                </div>
+            </template>
+
+            <template lwc:if={onReview}>
+                <div class="review">
+                    <div class="pane">
+                        <h3 class="big">Ready to send?</h3>
+                        <div class="summary-row"><span class="quiet">Document</span><span class="strong">{documentName}</span></div>
+                        <div class="summary-row"><span class="quiet">Sent with</span><span class="strong">{providerLabel}</span></div>
+                        <div class="summary-row"><span class="quiet">Order</span><span class="strong">{orderText}</span></div>
+                        <template for:each={rows} for:item="r">
+                            <div key={r.key} class="summary-signer">
+                                <span class={r.numCls}>{r.num}</span>
+                                <div class="signer-text"><span class="strong">{r.shownName}</span><span class="email">{r.shownEmail}</span></div>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="preview small-preview">
+                        <span class="eyebrow">Who signs where</span>
+                        <div class="page"><div class="preview-body" lwc:dom="manual"></div></div>
+                    </div>
+                </div>
+            </template>
+
+            <div class="footer">
+                <button type="button" class="btn" onclick={handlePrevious}>Back</button>
+                <template lwc:if={onReview}>
+                    <button type="button" class="btn primary" onclick={handleSend} disabled={cannotSend}>{sendLabel}</button>
+                </template>
+                <template lwc:else>
+                    <button type="button" class="btn primary" onclick={handleNext}>{nextLabel}</button>
+                </template>
+            </div>
+        </template>
+
+        <!-- ===================== SIGNING DESK ===================== -->
+        <template lwc:if={isDesk}>
+            <div class="desk">
+                <div class="preview">
+                    <span class="eyebrow">Who signs where</span>
+                    <div class="page"><div class="preview-body" lwc:dom="manual"></div></div>
+                </div>
+
+                <div class="panel">
+                    <div class="group">
+                        <span class="label">Signers</span>
+                        <template lwc:if={noSigners}>
+                            <div class="alert">This template has no signers. Add them under Signers in the Template Designer.</div>
+                        </template>
+                        <template for:each={rows} for:item="r">
+                            <div key={r.key} class="desk-signer">
+                                <span class={r.numCls}>{r.num}</span>
+                                <template lwc:if={r.viewing}>
+                                    <div class="signer-text">
+                                        <span class="strong">{r.shownName}</span>
+                                        <span class="email">{r.shownEmail}</span>
+                                        <span class="quiet small">{r.title}</span>
+                                    </div>
+                                    <button type="button" class="link" data-index={r.index} onclick={handleEdit}>Edit</button>
+                                </template>
+                                <template lwc:if={r.editing}>
+                                    <div class="signer-edit">
+                                        <span class="quiet small">{r.title}</span>
+                                        <lightning-input type="text" label="Name" value={r.name} data-index={r.index} data-prop="name" onchange={handleSigner}></lightning-input>
+                                        <lightning-input type="email" label="Email" value={r.email} data-index={r.index} data-prop="email" onchange={handleSigner}></lightning-input>
+                                        <button type="button" class="link" onclick={handleDone}>Done</button>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+
+                    <template lwc:if={severalSigners}>
+                        <fieldset class="order">
+                            <legend>Signing order</legend>
+                            <label class="choice"><input type="radio" name="deskorder" value="sequence" checked={inSequence} onchange={handleOrder} /><span>One after the other</span></label>
+                            <label class="choice"><input type="radio" name="deskorder" value="together" checked={together} onchange={handleOrder} /><span>Everyone at once</span></label>
+                        </fieldset>
+                    </template>
+
+                    <div class="group">
+                        <lightning-input type="text" label="Subject" placeholder="Please sign, plus the document name" value={subject} data-field="subject" onchange={handleText}></lightning-input>
+                        <lightning-textarea label="Message" value={message} data-field="message" onchange={handleText}></lightning-textarea>
+                    </div>
+
+                    <div class="desk-foot">
+                        <span class="quiet small">The signed copy is saved to this record when everyone has signed.</span>
+                        <button type="button" class="btn primary wide" onclick={handleSend} disabled={cannotSend}>{sendLabel}</button>
+                        <button type="button" class="link" onclick={handleBack}>Back to options</button>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+</template>

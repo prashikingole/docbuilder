@@ -1,0 +1,104 @@
+<template>
+    <div class="shell">
+        <template lwc:if={busy}>
+            <lightning-spinner alternative-text="Working" size="small"></lightning-spinner>
+        </template>
+
+        <template lwc:if={error}>
+            <div class="alert" role="alert">{error}</div>
+        </template>
+
+        <template lwc:if={request}>
+            <div class="head">
+                <div class="head-text">
+                    <span class="eyebrow">Signature request · {request.Name}</span>
+                    <h2 class="title">{title}</h2>
+                    <div class="meta">
+                        <span class={statusCls}>{statusText}</span>
+                        <span class="summary">{summary}</span>
+                    </div>
+                </div>
+                <div class="actions">
+                    <template lwc:if={canWithdraw}>
+                        <button type="button" class="btn" onclick={handleWithdraw}>Withdraw</button>
+                    </template>
+                    <template lwc:if={canCheck}>
+                        <button type="button" class="btn dark" onclick={handleCheck}>Check status now</button>
+                    </template>
+                </div>
+            </div>
+
+            <template lwc:if={request.Error_Message__c}>
+                <div class="alert" role="alert">{request.Error_Message__c}</div>
+            </template>
+
+            <div class="columns">
+                <section class="card progress">
+                    <h3>Progress</h3>
+                    <template for:each={steps} for:item="s">
+                        <div key={s.key} class="step">
+                            <div class="rail">
+                                <span class={s.bulletCls}>
+                                    <template lwc:if={s.isDone}>
+                                        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7.5l3 3 7-7"></path></svg>
+                                    </template>
+                                    <template lwc:if={s.isBad}>
+                                        <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 3l8 8M11 3l-8 8"></path></svg>
+                                    </template>
+                                </span>
+                                <template lwc:if={s.notLast}><span class={s.lineCls} aria-hidden="true"></span></template>
+                            </div>
+                            <div class="step-body">
+                                <span class={s.titleCls}>{s.title}</span>
+                                <template lwc:if={s.detail}><span class="step-detail">{s.detail}</span></template>
+                                <template lwc:if={s.when}>
+                                    <span class="step-detail">
+                                        <lightning-formatted-date-time value={s.when} year="numeric" month="short" day="numeric" hour="2-digit" minute="2-digit"></lightning-formatted-date-time>
+                                    </span>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                </section>
+
+                <aside class="side">
+                    <div class="card">
+                        <h3>Files</h3>
+                        <div class="file">
+                            <div class="file-text"><span class="strong">Copy that was sent</span></div>
+                            <template lwc:if={hasSent}><button type="button" class="btn small" onclick={openSent}>Open</button></template>
+                        </div>
+                        <div class="file top-line">
+                            <div class="file-text">
+                                <span class="strong">Signed copy</span>
+                                <template lwc:if={hasSigned}><span class="quiet">Saved to the record</span></template>
+                                <template lwc:else><span class="quiet">Not available yet</span></template>
+                            </div>
+                            <template lwc:if={hasSigned}><button type="button" class="btn small" onclick={openSigned}>Open</button></template>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h3>Details</h3>
+                        <div class="row"><span class="quiet">Provider</span><span class="strong">{view.providerLabel}</span></div>
+                        <template lwc:if={request.External_Id__c}>
+                            <div class="row"><span class="quiet">Provider reference</span><span class="mono">{request.External_Id__c}</span></div>
+                        </template>
+                        <template lwc:if={view.templateName}>
+                            <div class="row"><span class="quiet">Template</span><span class="strong">{view.templateName}</span></div>
+                        </template>
+                        <template lwc:if={request.Last_Checked_On__c}>
+                            <div class="row">
+                                <span class="quiet">Last checked</span>
+                                <span class="strong"><lightning-formatted-date-time value={request.Last_Checked_On__c} month="short" day="numeric" hour="2-digit" minute="2-digit"></lightning-formatted-date-time></span>
+                            </div>
+                        </template>
+                        <template lwc:if={hasSource}>
+                            <button type="button" class="link" onclick={openSource}>Open the source record</button>
+                        </template>
+                    </div>
+                </aside>
+            </div>
+        </template>
+    </div>
+</template>

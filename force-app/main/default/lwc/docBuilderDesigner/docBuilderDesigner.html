@@ -1,0 +1,597 @@
+<template>
+    <div class="shell">
+        <template lwc:if={busy}>
+            <lightning-spinner alternative-text="Working" size="medium"></lightning-spinner>
+        </template>
+
+        <!-- Top bar -->
+        <header class="db-top">
+            <div class="card crumb">
+                <span class="logo" aria-hidden="true">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 2.5h5.5L12 5v8.5H4z"></path>
+                        <path d="M6.5 8h3M6.5 10.5h3"></path>
+                    </svg>
+                </span>
+                <lightning-combobox
+                    class="template-picker"
+                    label="Template"
+                    variant="label-hidden"
+                    placeholder="Choose a template"
+                    options={templateOptions}
+                    value={templateId}
+                    onchange={handleTemplateChange}
+                ></lightning-combobox>
+                <template lwc:if={hasTemplate}>
+                    <span class="ver" title={statusLabel}>{versionChip}</span>
+                </template>
+                <button type="button" class="btn ghost" onclick={toggleNew}>New</button>
+            </div>
+
+            <template lwc:if={hasTemplate}>
+                <div class="card seg" role="group" aria-label="View">
+                    <template for:each={modeButtons} for:item="m">
+                        <button key={m.value} type="button" class={m.cls} data-mode={m.value} aria-pressed={m.pressed} onclick={handleModeClick}>{m.label}</button>
+                    </template>
+                </div>
+                <div class="top-actions">
+                    <span class="saved"><span class={savedDotCls} aria-hidden="true"></span>{savedLabel}</span>
+                    <button type="button" class="btn" onclick={handleSave}>Save draft</button>
+                    <button type="button" class="btn primary" onclick={handleActivate}>Activate</button>
+                </div>
+            </template>
+        </header>
+
+        <template lwc:if={showNew}>
+            <div class="card new-panel">
+                <lightning-input label="Template name" value={newName} data-field="newName" onchange={handleNewField}></lightning-input>
+                <lightning-input
+                    label="Built on (object API name)"
+                    value={newObject}
+                    data-field="newObject"
+                    field-level-help="The record type documents are generated from, e.g. Opportunity, Account, Case or My_Object__c."
+                    onchange={handleNewField}
+                ></lightning-input>
+                <button type="button" class="btn primary" onclick={handleCreate}>Create</button>
+                <button type="button" class="btn" onclick={toggleNew}>Cancel</button>
+            </div>
+        </template>
+
+        <template lwc:if={health}>
+            <div class={healthClass} role="status">{health.text}</div>
+        </template>
+
+        <template lwc:if={noTemplate}>
+            <div class="card empty">
+                <h2>Design a document without leaving Salesforce</h2>
+                <p>Choose a template above, or create a new one. You will build it from blocks, drop in fields from a live list, and preview it with a real record.</p>
+            </div>
+        </template>
+
+        <template lwc:if={hasTemplate}>
+            <!-- DESIGN -->
+            <template lwc:if={isDesign}>
+                <div class="db-work">
+                    <!-- Block rail -->
+                    <nav class="card rail" aria-label="Add a block">
+                        <button type="button" class="rail-btn" data-type="text" onclick={handleAddBlock}>
+                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 4h10M8 4v9"></path></svg>
+                            Text
+                        </button>
+                        <button type="button" class="rail-btn" data-type="heading" onclick={handleAddBlock}>
+                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 3v10M12.5 3v10M3.5 8h9"></path></svg>
+                            Heading
+                        </button>
+                        <button type="button" class="rail-btn" data-type="table" onclick={handleAddBlock}>
+                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M2.75 3.75h10.5v8.5H2.75zM2.75 7h10.5M6.5 7v5.25"></path></svg>
+                            Table
+                        </button>
+                        <button type="button" class="rail-btn" data-type="image" onclick={handleAddBlock}>
+                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.75 3.75h10.5v8.5H2.75z"></path><path d="M4.5 10.5l2.5-2.5 2 2 1.5-1.5 1.5 1.5"></path></svg>
+                            Image
+                        </button>
+                        <button type="button" class="rail-btn" data-type="terms" onclick={handleAddBlock}>
+                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 4.5h7M6 8h7M6 11.5h7M3 4.5h.01M3 8h.01M3 11.5h.01"></path></svg>
+                            Terms
+                        </button>
+                        <button type="button" class="rail-btn" data-type="signature" onclick={handleAddBlock}>
+                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10.5c1.5-4 3-6 4-6s.5 5 1.5 5 1.500-2 2.500-2 1 2 3.500 2"></path><path d="M2 13.500h12"></path></svg>
+                            Sign
+                        </button>
+                        <button type="button" class="rail-btn" data-type="pagebreak" onclick={handleAddBlock}>
+                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="2 2.5"><path d="M2 8h12"></path></svg>
+                            Break
+                        </button>
+                    </nav>
+
+                    <!-- Page -->
+                    <main class="db-stage">
+                        <div class="page" style={pageStyle}>
+                            <template lwc:if={hasHeader}>
+                                <div class="page-edge page-header">
+                                    <span>
+                                        <template lwc:if={logoUrl}><img src={logoUrl} style={logoStyle} alt="Header logo" /></template>
+                                    </span>
+                                    <span class="edge-text">
+                                        <template for:each={headerSegs} for:item="s"><span key={s.key} class={s.cls}>{s.text}</span></template>
+                                    </span>
+                                </div>
+                            </template>
+                            <template lwc:if={noBlocks}>
+                                <p class="hint centered">This template is empty. Add a block from the rail on the left, or open Fields on the right and click a field.</p>
+                            </template>
+                            <template for:each={blockViews} for:item="b">
+                                <div key={b.id} class={b.cls} data-id={b.id} role="button" tabindex="0" onclick={handleSelect} onkeydown={handleBlockKey}>
+                                    <div class="block-head">
+                                        <span class="block-type">{b.label}</span>
+                                        <span class="block-actions">
+                                            <lightning-button-icon icon-name="utility:arrowup" variant="bare" alternative-text="Move up" data-id={b.id} data-delta="-1" disabled={b.first} onclick={handleMove}></lightning-button-icon>
+                                            <lightning-button-icon icon-name="utility:arrowdown" variant="bare" alternative-text="Move down" data-id={b.id} data-delta="1" disabled={b.last} onclick={handleMove}></lightning-button-icon>
+                                            <lightning-button-icon icon-name="utility:delete" variant="bare" alternative-text="Delete block" data-id={b.id} onclick={handleDelete}></lightning-button-icon>
+                                        </span>
+                                    </div>
+                                    <template lwc:if={b.hasRule}>
+                                        <div class="rule-tag">{b.rule}</div>
+                                    </template>
+
+                                    <template lwc:if={b.isBreak}>
+                                        <div class="break">Page break</div>
+                                    </template>
+                                    <template lwc:if={b.empty}>
+                                        <div class="hint">Empty. Type in Settings, or open Fields and click a field.</div>
+                                    </template>
+                                    <template lwc:if={b.isHeading}>
+                                        <div class={b.textCls}>
+                                            <template for:each={b.segs} for:item="s"><span key={s.key} class={s.cls}>{s.text}</span></template>
+                                        </div>
+                                    </template>
+                                    <template lwc:if={b.isText}>
+                                        <div class={b.textCls}>
+                                            <template for:each={b.segs} for:item="s"><span key={s.key} class={s.cls}>{s.text}</span></template>
+                                        </div>
+                                    </template>
+                                    <template lwc:if={b.isRich}>
+                                        <div class={b.richCls}>
+                                            <lightning-formatted-rich-text value={b.richHtml} disable-linkify></lightning-formatted-rich-text>
+                                        </div>
+                                    </template>
+                                    <template lwc:if={b.hasImage}>
+                                        <div class={b.imgCls}><img src={b.imgUrl} style={b.imgStyle} alt="Image block" /></div>
+                                    </template>
+                                    <template lwc:if={b.noImage}>
+                                        <div class="hint">No image yet. Upload one in Settings.</div>
+                                    </template>
+                                    <template lwc:if={b.isSignature}>
+                                        <div class="sig-row">
+                                            <template for:each={signatureAreas} for:item="a">
+                                                <div key={a.key} class="sig-cell">
+                                                    <div class="sig-line"></div>
+                                                    <div class="sig-label">
+                                                        {a.role}
+                                                        <template for:each={a.segs} for:item="s"><span key={s.key} class={s.cls}>{s.text}</span></template>
+                                                    </div>
+                                                    <template lwc:if={b.sigShowName}><div class="sig-label">Name</div></template>
+                                                    <template lwc:if={b.sigShowDate}><div class="sig-label">Date</div></template>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </template>
+                                    <template lwc:if={b.hasElse}>
+                                        <div class="else">
+                                            <span class="else-tag">Otherwise</span>
+                                            <template for:each={b.elseSegs} for:item="s"><span key={s.key} class={s.cls}>{s.text}</span></template>
+                                        </div>
+                                    </template>
+
+                                    <template lwc:if={b.isTable}>
+                                        <div class="table-note">One row per record in <strong>{b.source}</strong></div>
+                                        <template lwc:if={b.rowRule}>
+                                            <div class="table-note">{b.rowRule}</div>
+                                        </template>
+                                        <template lwc:if={b.noColumns}>
+                                            <div class="hint">No columns yet. Open Fields on the right and click the ones you want.</div>
+                                        </template>
+                                        <div class="grid-head">
+                                            <template for:each={b.columns} for:item="c">
+                                                <div key={c.key} class={c.cls}>{c.header}</div>
+                                            </template>
+                                        </div>
+                                        <div class="grid-row">
+                                            <template for:each={b.columns} for:item="c">
+                                                <div key={c.key} class={c.cls}><span class="chip">{c.field}</span></div>
+                                            </template>
+                                        </div>
+                                        <template for:each={b.totals} for:item="t">
+                                            <div key={t.key} class="grid-total">
+                                                <span>{t.label}</span><span class="chip chip-calc">{t.calc}</span>
+                                            </div>
+                                        </template>
+                                    </template>
+
+                                    <template lwc:if={b.isTerms}>
+                                        <div class="terms-title">{b.title}</div>
+                                        <template for:each={b.items} for:item="i">
+                                            <div key={i.key} class="term">
+                                                <span class="term-num">{i.num}</span>
+                                                <span class="term-text">
+                                                    <template for:each={i.segs} for:item="s"><span key={s.key} class={s.cls}>{s.text}</span></template>
+                                                    <template lwc:if={i.hasRule}><span class="rule-tag inline">{i.rule}</span></template>
+                                                </span>
+                                            </div>
+                                        </template>
+                                        <template lwc:if={b.clauseCategory}>
+                                            <div class="table-note">Plus every active library clause in category <strong>{b.clauseCategory}</strong></div>
+                                        </template>
+                                    </template>
+                                </div>
+                            </template>
+                            <template lwc:if={hasFooter}>
+                                <div class="page-edge page-footer">
+                                    <span class="edge-text">
+                                        <template for:each={footerSegs} for:item="s"><span key={s.key} class={s.cls}>{s.text}</span></template>
+                                    </span>
+                                    <template lwc:if={footer.pageNumbers}><span>Page 1 of 1</span></template>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Dock -->
+                        <div class="db-dock" role="group" aria-label="Template settings">
+                            <button type="button" class="dock-btn" data-panel="page" onclick={handleDock}>{pageLabel}</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" data-panel="headerfooter" onclick={handleDock}>Header, footer, watermark</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" data-panel="calc" onclick={handleDock}>Calculated values</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" data-panel="signers" onclick={handleDock}>Signers</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" data-panel="template" onclick={handleDock}>Name and languages</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" onclick={handleCheck}><span class="dot" aria-hidden="true"></span>Check fields</button>
+                        </div>
+                    </main>
+
+                    <!-- Inspector -->
+                    <aside class="card inspector">
+                        <div class="seg small" role="group" aria-label="Panel">
+                            <template for:each={panelTabs} for:item="t">
+                                <button key={t.value} type="button" class={t.cls} data-tab={t.value} aria-pressed={t.pressed} onclick={handlePanelTab}>{t.label}</button>
+                            </template>
+                        </div>
+
+                        <!-- Settings -->
+                        <template lwc:if={showSettings}>
+                            <template lwc:if={sel}>
+                                <div class="panel-title">
+                                    <span class="eyebrow">Selected</span>
+                                    <h2>{selLabel} block</h2>
+                                </div>
+
+                                <template lwc:if={selIsText}>
+                                    <lightning-input type="checkbox" label="Rich text (bold, colours, lists, sizes)" checked={sel.rich} onchange={handleRichToggle}></lightning-input>
+                                </template>
+                                <template lwc:if={selIsRich}>
+                                    <lightning-input-rich-text label="Text" label-visible value={sel.text} formats={richFormats} onchange={handleRichChange}></lightning-input-rich-text>
+                                </template>
+                                <template lwc:if={selIsImage}>
+                                    <template lwc:if={selImageUrl}>
+                                        <div class="thumb"><img src={selImageUrl} alt="Current image" /></div>
+                                    </template>
+                                    <lightning-file-upload label="Upload an image" name="blockImage" accept={imageFormats} record-id={templateId} onuploadfinished={handleImageUpload}></lightning-file-upload>
+                                    <lightning-input type="number" label="Width in pixels" min="16" max="1000" value={sel.width} data-prop="width" onchange={handleProp}></lightning-input>
+                                    <lightning-combobox label="Alignment" options={alignOptions} value={sel.align} data-prop="align" onchange={handleProp}></lightning-combobox>
+                                </template>
+                                <template lwc:if={selIsSignature}>
+                                    <p class="hint">One signing area is printed for each signer on this template. When the document is sent for e-signature, the provider places its signature, name and date fields here. Otherwise these print as lines to sign by hand.</p>
+                                    <lightning-input type="checkbox" label="Include the date signed" checked={selShowDate} data-prop="showDate" onchange={handleProp}></lightning-input>
+                                    <lightning-input type="checkbox" label="Include the signer's printed name" checked={sel.showName} data-prop="showName" onchange={handleProp}></lightning-input>
+                                    <button type="button" class="link-btn" onclick={openSigners}>Edit who signs this document</button>
+                                </template>
+                                <template lwc:if={selIsTextual}>
+                                    <template lwc:if={selIsPlain}>
+                                        <lightning-textarea label="Text" value={sel.text} data-prop="text" class="tall" onchange={handleProp} onfocus={handleFocus}></lightning-textarea>
+                                    </template>
+                                    <button type="button" class="link-btn" data-tab="fields" onclick={handlePanelTab}>Insert a field into this text</button>
+                                    <template lwc:if={selIsHeading}>
+                                        <lightning-combobox label="Size" options={levelOptions} value={sel.level} data-prop="level" onchange={handleProp}></lightning-combobox>
+                                    </template>
+                                    <lightning-combobox label="Alignment" options={alignOptions} value={sel.align} data-prop="align" onchange={handleProp}></lightning-combobox>
+                                </template>
+
+                                <template lwc:if={selIsTable}>
+                                    <lightning-combobox label="Rows come from" placeholder="Choose a related list" options={sourceOptions} value={sel.source} data-prop="source" onchange={handleProp}></lightning-combobox>
+                                    <lightning-input type="text" label="Or a list on a related record" placeholder="e.g. Account.Contacts" value={sel.source} data-prop="source" onchange={handleProp}></lightning-input>
+
+                                    <h3>Columns</h3>
+                                    <template for:each={sel.columns} for:item="c">
+                                        <div key={c.index} class="row-card">
+                                            <div class="row-line">
+                                                <lightning-input type="text" label="Heading" value={c.header} data-list="columns" data-index={c.index} data-prop="header" onchange={handleRow}></lightning-input>
+                                                <lightning-button-icon icon-name="utility:delete" alternative-text="Remove column" class="row-remove" data-list="columns" data-index={c.index} onclick={handleRemoveRow}></lightning-button-icon>
+                                            </div>
+                                            <lightning-input type="text" label="Field" value={c.field} data-list="columns" data-index={c.index} data-prop="field" onchange={handleRow}></lightning-input>
+                                            <div class="row-line">
+                                                <lightning-combobox label="Align" options={alignOptions} value={c.align} data-list="columns" data-index={c.index} data-prop="align" onchange={handleRow}></lightning-combobox>
+                                                <lightning-combobox label="Format" options={formatOptions} value={c.format} data-list="columns" data-index={c.index} data-prop="format" onchange={handleRow}></lightning-combobox>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <button type="button" class="link-btn" data-tab="fields" onclick={handlePanelTab}>Add columns from the field list</button>
+
+                                    <h3>Which rows to include</h3>
+                                    <c-doc-builder-rule rule={sel.rowFilter} data-target="rowFilter" onrulechange={handleRule}></c-doc-builder-rule>
+
+                                    <h3>Sorting</h3>
+                                    <div class="row-line">
+                                        <lightning-input type="text" label="Sort by field" value={sel.orderBy} data-prop="orderBy" onchange={handleProp}></lightning-input>
+                                        <lightning-combobox label="Direction" options={directionOptions} value={sel.orderDirection} data-prop="orderDirection" onchange={handleProp}></lightning-combobox>
+                                    </div>
+
+                                    <h3>Summary rows</h3>
+                                    <template for:each={sel.totals} for:item="t">
+                                        <div key={t.index} class="row-line">
+                                            <lightning-input type="text" label="Label" value={t.label} data-list="totals" data-index={t.index} data-prop="label" onchange={handleRow}></lightning-input>
+                                            <lightning-combobox label="Calculated value" options={calcOptions} value={t.calc} data-list="totals" data-index={t.index} data-prop="calc" onchange={handleRow}></lightning-combobox>
+                                            <lightning-button-icon icon-name="utility:delete" alternative-text="Remove summary row" class="row-remove" data-list="totals" data-index={t.index} onclick={handleRemoveRow}></lightning-button-icon>
+                                        </div>
+                                    </template>
+                                    <button type="button" class="btn small" data-list="totals" onclick={handleAddRow}>Add summary row</button>
+                                    <lightning-input type="checkbox" class="slds-m-top_small" label="Hide the table when there are no rows" checked={sel.hideWhenEmpty} data-prop="hideWhenEmpty" onchange={handleProp}></lightning-input>
+                                </template>
+
+                                <template lwc:if={selIsTerms}>
+                                    <lightning-input type="text" label="Title" value={sel.title} data-prop="title" onchange={handleProp}></lightning-input>
+                                    <h3>Clauses in this template</h3>
+                                    <template for:each={sel.items} for:item="i">
+                                        <div key={i.id} class="row-card">
+                                            <div class="row-line">
+                                                <lightning-textarea label="Clause text" value={i.text} data-list="items" data-index={i.index} data-prop="itemText" onchange={handleItemText} onfocus={handleFocus}></lightning-textarea>
+                                                <lightning-button-icon icon-name="utility:delete" alternative-text="Remove clause" class="row-remove" data-list="items" data-index={i.index} onclick={handleRemoveRow}></lightning-button-icon>
+                                            </div>
+                                            <p class="hint">Print this clause only if</p>
+                                            <c-doc-builder-rule rule={i.showIf} data-target="item" data-index={i.index} onrulechange={handleRule}></c-doc-builder-rule>
+                                        </div>
+                                    </template>
+                                    <button type="button" class="btn small" data-list="items" onclick={handleAddRow}>Add clause</button>
+                                    <lightning-input
+                                        type="text"
+                                        class="slds-m-top_small"
+                                        label="Also include library clauses in category"
+                                        placeholder="e.g. Standard"
+                                        field-level-help="Clauses are kept on the Document Clauses tab and shared by every template that names their category."
+                                        value={sel.clauseCategory}
+                                        data-prop="clauseCategory"
+                                        onchange={handleProp}
+                                    ></lightning-input>
+                                </template>
+
+                                <template lwc:if={selHasRule}>
+                                    <h3>Visibility: show this block only if</h3>
+                                    <div class="soft">
+                                        <c-doc-builder-rule rule={sel.showIf} data-target="showIf" onrulechange={handleRule}></c-doc-builder-rule>
+                                    </div>
+                                    <template lwc:if={selIsTextual}>
+                                        <lightning-textarea label="Otherwise show this text instead" value={sel.elseText} data-prop="elseText" onchange={handleProp} onfocus={handleFocus}></lightning-textarea>
+                                    </template>
+                                </template>
+                            </template>
+
+                            <template lwc:else>
+                                <div class="panel-title">
+                                    <span class="eyebrow">Template</span>
+                                    <h2>{panelTitle}</h2>
+                                </div>
+
+                                <template lwc:if={isPanelTemplate}>
+                                    <p class="hint">Click a block on the page to edit it. Use the bar under the page for page setup, header and footer, and calculated values.</p>
+                                    <lightning-input type="text" label="Template name" value={name} data-field="name" onchange={handleSetting}></lightning-input>
+                                    <lightning-input
+                                        type="text"
+                                        label="File name"
+                                        placeholder={fileNameHint}
+                                        field-level-help="Click here, then open Fields and click a field to add it to the file name."
+                                        value={fileNamePattern}
+                                        data-field="fileNamePattern"
+                                        data-prop="fileNamePattern"
+                                        onchange={handleSetting}
+                                        onfocus={handleFocus}
+                                    ></lightning-input>
+                                    <lightning-input
+                                        type="text"
+                                        label="Languages"
+                                        placeholder="e.g. en, fr, de"
+                                        field-level-help="Comma separated codes. Translate the extra languages in the Translate view."
+                                        value={languages}
+                                        data-field="languages"
+                                        onchange={handleSetting}
+                                    ></lightning-input>
+                                </template>
+
+                                <template lwc:if={isPanelPage}>
+                                    <lightning-combobox label="Paper size" options={pageSizeOptions} value={page.size} data-prop="size" onchange={handlePage}></lightning-combobox>
+                                    <lightning-combobox label="Orientation" options={orientationOptions} value={page.orientation} data-prop="orientation" onchange={handlePage}></lightning-combobox>
+                                    <lightning-combobox label="Margins" options={marginOptions} value={page.margin} data-prop="margin" onchange={handlePage}></lightning-combobox>
+                                </template>
+
+                                <template lwc:if={isPanelHeaderFooter}>
+                                    <h3>Header, repeated on every page</h3>
+                                    <template lwc:if={logoUrl}>
+                                        <div class="thumb"><img src={logoUrl} alt="Current logo" /></div>
+                                        <div class="row-line">
+                                            <lightning-input type="number" label="Logo width in pixels" min="16" max="600" value={header.logoWidth} data-section="header" data-prop="logoWidth" onchange={handlePage}></lightning-input>
+                                            <button type="button" class="btn small row-remove" onclick={handleRemoveLogo}>Remove</button>
+                                        </div>
+                                    </template>
+                                    <lightning-file-upload label="Logo" name="headerLogo" accept={imageFormats} record-id={templateId} onuploadfinished={handleLogoUpload}></lightning-file-upload>
+                                    <lightning-input
+                                        type="text"
+                                        label="Header text"
+                                        field-level-help="Shown at the top right of every page. Click here, then open Fields to add a field."
+                                        value={header.text}
+                                        data-section="header"
+                                        data-prop="text"
+                                        data-focus="headerText"
+                                        onchange={handlePage}
+                                        onfocus={handlePageFocus}
+                                    ></lightning-input>
+
+                                    <h3>Footer, repeated on every page</h3>
+                                    <lightning-input type="text" label="Footer text" value={footer.text} data-section="footer" data-prop="text" data-focus="footerText" onchange={handlePage} onfocus={handlePageFocus}></lightning-input>
+                                    <lightning-input type="checkbox" label="Show page numbers (Page 1 of 3)" checked={footer.pageNumbers} data-section="footer" data-prop="pageNumbers" onchange={handlePage}></lightning-input>
+
+                                    <h3>Watermark</h3>
+                                    <lightning-input type="text" label="Watermark text" placeholder="e.g. CONFIDENTIAL" value={watermark.text} data-section="watermark" data-prop="text" data-focus="watermarkText" onchange={handlePage} onfocus={handlePageFocus}></lightning-input>
+                                    <p class="hint">Show the watermark only if (leave empty to show it always)</p>
+                                    <div class="soft">
+                                        <c-doc-builder-rule rule={watermark.showIf} onrulechange={handleWatermarkRule}></c-doc-builder-rule>
+                                    </div>
+                                </template>
+
+                                <template lwc:if={isPanelSigners}>
+                                    <p class="hint">Who signs this document, in signing order. Type a name and email, or click a box and then pick a field from the Fields tab so they come from the record.</p>
+                                    <template for:each={signerRows} for:item="s">
+                                        <div key={s.index} class="row-card">
+                                            <div class="row-line">
+                                                <lightning-input type="text" label="Role" placeholder="e.g. Customer" value={s.role} data-list="signers" data-index={s.index} data-prop="role" onchange={handleRow}></lightning-input>
+                                                <lightning-button-icon icon-name="utility:delete" alternative-text="Remove signer" class="row-remove" data-list="signers" data-index={s.index} onclick={handleRemoveRow}></lightning-button-icon>
+                                            </div>
+                                            <lightning-input type="text" label="Name" value={s.name} data-list="signers" data-index={s.index} data-prop="name" onchange={handleRow} onfocus={handleSignerFocus}></lightning-input>
+                                            <lightning-input type="text" label="Email" value={s.email} data-list="signers" data-index={s.index} data-prop="email" onchange={handleRow} onfocus={handleSignerFocus}></lightning-input>
+                                        </div>
+                                    </template>
+                                    <button type="button" class="btn small" data-list="signers" onclick={handleAddRow}>Add signer</button>
+                                    <template lwc:if={noSigners}>
+                                        <p class="hint">With no signers, a signature block prints one plain line and the document cannot be sent for e-signature.</p>
+                                    </template>
+                                </template>
+
+                                <template lwc:if={isPanelCalc}>
+                                    <p class="hint">Totals over a list, or a formula on the record. Place one in text by typing calc: and its name inside double braces.</p>
+                                    <template for:each={calcRows} for:item="c">
+                                        <div key={c.index} class="row-card">
+                                            <div class="row-line">
+                                                <lightning-input type="text" label="Name" placeholder="e.g. Subtotal" value={c.name} data-list="calculations" data-index={c.index} data-prop="name" onchange={handleRow}></lightning-input>
+                                                <lightning-button-icon icon-name="utility:delete" alternative-text="Remove calculated value" class="row-remove" data-list="calculations" data-index={c.index} onclick={handleRemoveRow}></lightning-button-icon>
+                                            </div>
+                                            <lightning-combobox label="Type" options={calcTypeOptions} value={c.type} data-list="calculations" data-index={c.index} data-prop="type" onchange={handleRow}></lightning-combobox>
+                                            <template lwc:if={c.isRollup}>
+                                                <lightning-input type="text" label="Over the list" placeholder="e.g. OpportunityLineItems" value={c.source} data-list="calculations" data-index={c.index} data-prop="source" onchange={handleRow}></lightning-input>
+                                            </template>
+                                            <template lwc:if={c.needsField}>
+                                                <lightning-input type="text" label="Field to total" placeholder="e.g. TotalPrice" value={c.field} data-list="calculations" data-index={c.index} data-prop="field" onchange={handleRow}></lightning-input>
+                                            </template>
+                                            <template lwc:if={c.isFormula}>
+                                                <lightning-input type="text" label="Formula" placeholder="e.g. Amount * 0.9 or calc:Subtotal - 100" field-level-help="Numbers, record fields, earlier calculated values as calc:Name, and + - * / with brackets." value={c.expression} data-list="calculations" data-index={c.index} data-prop="expression" onchange={handleRow}></lightning-input>
+                                            </template>
+                                            <lightning-combobox label="Show as" options={formatOptions} value={c.format} data-list="calculations" data-index={c.index} data-prop="format" onchange={handleRow}></lightning-combobox>
+                                        </div>
+                                    </template>
+                                    <button type="button" class="btn small" data-list="calculations" onclick={handleAddRow}>Add calculated value</button>
+                                </template>
+                            </template>
+                        </template>
+
+                        <!-- Fields -->
+                        <template lwc:if={showFields}>
+                            <div class="panel-title">
+                                <span class="eyebrow">Insert a field</span>
+                                <h2>{pickerTitle}</h2>
+                            </div>
+                            <p class="hint">{pickerHint}</p>
+                            <div class="search-row">
+                                <template lwc:if={canGoBack}>
+                                    <lightning-button-icon icon-name="utility:back" alternative-text="Back" onclick={handleBack}></lightning-button-icon>
+                                </template>
+                                <lightning-input class="search" type="search" label="Search fields" variant="label-hidden" placeholder="Search fields" value={search} onchange={handleSearch}></lightning-input>
+                            </div>
+                            <div class="pick-list">
+                                <template for:each={pickerFields} for:item="f">
+                                    <button key={f.key} type="button" class="pick" data-path={f.path} data-label={f.label} data-type={f.type} onclick={handlePick}>
+                                        <span class="pick-label">{f.label}</span>
+                                        <span class="pick-type">{f.type}</span>
+                                    </button>
+                                </template>
+                            </div>
+                            <template lwc:if={hasLookups}>
+                                <h3>Related records</h3>
+                                <div class="pick-list short">
+                                    <template for:each={pickerLookups} for:item="l">
+                                        <button key={l.key} type="button" class="pick" data-rel={l.rel} data-object={l.object} data-label={l.label} onclick={handleDrill}>
+                                            <span class="pick-label">{l.label}</span>
+                                            <span class="pick-open">Open</span>
+                                        </button>
+                                    </template>
+                                </div>
+                            </template>
+                            <template lwc:if={showListSection}>
+                                <h3>Lists, added as tables</h3>
+                                <template lwc:if={hasLists}>
+                                    <div class="pick-list short">
+                                        <template for:each={pickerLists} for:item="l">
+                                            <button key={l.key} type="button" class="pick stacked" data-source={l.source} onclick={handlePickList}>
+                                                <span class="pick-label">{l.label}</span>
+                                                <span class="pick-type">{l.detail}</span>
+                                            </button>
+                                        </template>
+                                    </div>
+                                </template>
+                                <lightning-input type="checkbox" class="slds-m-top_x-small" label="Show system lists (history, files, activities)" checked={showAllLists} onchange={handleShowAllLists}></lightning-input>
+                            </template>
+                        </template>
+                    </aside>
+                </div>
+            </template>
+
+            <!-- PREVIEW -->
+            <template lwc:if={isPreview}>
+                <div class="card db-bar">
+                    <lightning-record-picker class="record-picker" label="Preview with this record" placeholder="Search records" object-api-name={tpl.baseObject} value={previewRecordId} onchange={handlePreviewRecord}></lightning-record-picker>
+                    <template lwc:if={hasLanguages}>
+                        <lightning-combobox label="Language" options={languageOptions} value={previewLanguage} onchange={handlePreviewLanguage}></lightning-combobox>
+                    </template>
+                    <button type="button" class="btn" onclick={refreshPreview}>Refresh</button>
+                </div>
+                <template lwc:if={previewError}>
+                    <div class="health bad" role="alert">{previewError}</div>
+                </template>
+                <template lwc:if={showPreviewHint}>
+                    <div class="card empty"><p>Pick a record to see exactly what would be generated for it. The preview uses your unsaved changes and saves nothing.</p></div>
+                </template>
+                <div class="db-stage">
+                    <div class="page preview-page" style={pageStyle}>
+                        <div class="preview-body" lwc:dom="manual"></div>
+                    </div>
+                    <div class="db-dock static"><span class="dock-text">{pageLabel}. Page breaks and repeated headers appear in the PDF itself.</span></div>
+                </div>
+            </template>
+
+            <!-- TRANSLATE -->
+            <template lwc:if={isTranslate}>
+                <div class="card db-bar">
+                    <template lwc:if={noTranslationLanguages}>
+                        <p>Add extra languages under "Name and languages" in the Design view (for example "en, fr"), then come back here.</p>
+                    </template>
+                    <template lwc:else>
+                        <lightning-combobox label="Translate into" placeholder="Choose a language" options={translationLanguages} value={transLanguage} onchange={handleTransLanguage}></lightning-combobox>
+                        <button type="button" class="btn primary" onclick={handleSaveTranslations} disabled={noTransRows}>Save translations</button>
+                    </template>
+                </div>
+                <template lwc:if={hasTransRows}>
+                    <div class="card trans">
+                        <p class="hint">Keep each field token exactly as it appears, including the double braces. You can move a token anywhere in the sentence. Anything left blank prints in the default language.</p>
+                        <template for:each={transRows} for:item="p">
+                            <div key={p.key} class="trans-row">
+                                <div class="trans-source">
+                                    <span class="eyebrow">{p.label}</span>
+                                    <template lwc:if={p.outOfDate}><span class="rule-tag inline">Original changed since this was translated</span></template>
+                                    <div class="trans-text">{p.source}</div>
+                                </div>
+                                <lightning-textarea class="trans-input" label="Translation" variant="label-hidden" value={p.translated} data-index={p.index} onchange={handleTransText}></lightning-textarea>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </template>
+        </template>
+    </div>
+</template>

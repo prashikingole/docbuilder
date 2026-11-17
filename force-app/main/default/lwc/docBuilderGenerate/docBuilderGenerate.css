@@ -1,0 +1,314 @@
+.layout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-start;
+}
+.options {
+    flex: 1 1 15rem;
+    max-width: 20rem;
+    min-width: 0;
+}
+.preview {
+    flex: 999 1 20rem;
+    min-width: 0;
+    background: #eef0f4;
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+}
+.preview-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+.preview-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #5b6676;
+    margin-right: 0.25rem;
+}
+.page {
+    position: relative;
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid #dde1e8;
+    border-radius: 0.25rem;
+    box-shadow: 0 4px 16px rgba(19, 26, 43, 0.12);
+    padding: 1.5rem 1.75rem;
+    min-height: 12rem;
+    max-height: 26rem;
+    overflow-y: auto;
+}
+.watermark {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 5rem;
+    text-align: center;
+    font-size: 4.5rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: rgba(19, 26, 43, 0.08);
+    transform: rotate(-20deg);
+    pointer-events: none;
+}
+.note {
+    font-size: 0.8125rem;
+    color: #5b6676;
+    margin-top: 0.25rem;
+}
+.email {
+    border: 1px solid #dde1e8;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem 0.75rem;
+    margin-top: 0.5rem;
+    background: #fafbfc;
+}
+.warn {
+    color: #8a4205;
+    font-weight: 600;
+    font-size: 0.8125rem;
+    margin-top: 0.375rem;
+}
+.warn-box {
+    background: #fdf1e3;
+    color: #6e3404;
+    border-radius: 0.5rem;
+    padding: 0.625rem 0.875rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+.done {
+    background: #e6f3ec;
+    color: #17553a;
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.75rem;
+}
+.done-title {
+    font-weight: 700;
+}
+.footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+}
+.summary {
+    flex: 1 1 14rem;
+    text-align: left;
+    font-size: 0.8125rem;
+    color: #3a4658;
+}
+.footer-actions {
+    margin-left: auto;
+}
+
+.preview-body {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+}
+.preview-body h1 {
+    font-size: 1.375rem;
+    font-weight: 700;
+    margin: 0 0 0.5rem;
+}
+.preview-body h2 {
+    font-size: 1.125rem;
+    font-weight: 700;
+    margin: 0.75rem 0 0.375rem;
+}
+.preview-body h3 {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    margin: 0.75rem 0 0.25rem;
+}
+.preview-body p {
+    margin: 0 0 0.625rem;
+}
+.preview-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.375rem 0 0.75rem;
+}
+.preview-body th {
+    text-align: left;
+    padding: 0.25rem;
+    border-bottom: 2px solid #16202e;
+}
+.preview-body td {
+    padding: 0.25rem;
+    border-bottom: 1px solid #dde1e8;
+}
+.preview-body .r,
+.preview-body .right {
+    text-align: right;
+}
+.preview-body .c,
+.preview-body .center {
+    text-align: center;
+}
+.preview-body tr.tot td {
+    border-bottom: none;
+    font-weight: 700;
+}
+.preview-body ol {
+    list-style: decimal;
+    margin: 0 0 0.625rem;
+    padding-left: 1.5rem;
+}
+.preview-body .pv-header {
+    border-bottom: 1px solid #dde1e8;
+    padding-bottom: 0.375rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.75rem;
+    color: #3a4658;
+}
+.preview-body .pv-footer {
+    border-top: 1px solid #dde1e8;
+    padding-top: 0.375rem;
+    margin-top: 0.75rem;
+    font-size: 0.75rem;
+    color: #3a4658;
+}
+.preview-body table.hf {
+    margin: 0;
+}
+.preview-body table.hf td {
+    border: none;
+    padding: 0;
+    vertical-align: middle;
+}
+.preview-body .pv-watermark {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 5rem;
+    text-align: center;
+    font-size: 3rem;
+    font-weight: 700;
+    color: rgba(19, 26, 43, 0.08);
+    transform: rotate(-20deg);
+    pointer-events: none;
+}
+.preview-body ul {
+    list-style: disc;
+    margin: 0 0 0.625rem;
+    padding-left: 1.5rem;
+}
+.preview-body img {
+    max-width: 100%;
+    height: auto;
+}
+.preview-body .ql-align-center {
+    text-align: center;
+}
+.preview-body .ql-align-right {
+    text-align: right;
+}
+
+/* Studio look, matching the Template Designer */
+.preview {
+    background-color: #f6f6f7;
+    background-image: radial-gradient(#d6d6dc 1px, transparent 1px);
+    background-size: 22px 22px;
+    border-radius: 1rem;
+    padding: 1rem;
+}
+.preview-label {
+    color: #6b6b76;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-size: 0.6875rem;
+}
+.page {
+    border: 0;
+    border-radius: 0.375rem;
+    box-shadow:
+        0 1px 2px rgba(14, 14, 18, 0.06),
+        0 16px 40px rgba(14, 14, 18, 0.1);
+}
+.email {
+    border-color: #e4e4e9;
+    border-radius: 0.875rem;
+    background: #fafafb;
+}
+.note,
+.summary {
+    color: #6b6b76;
+}
+.done {
+    border-radius: 0.875rem;
+}
+.warn-box {
+    border-radius: 0.875rem;
+}
+.preview-body th {
+    border-bottom: 1.5px solid #0e0e12;
+}
+.preview-body td {
+    border-bottom: 1px solid #e4e4e9;
+}
+
+/* Email and signing forms */
+.box {
+    border: 1px solid #e4e4e9;
+    border-radius: 0.875rem;
+    padding: 0.625rem 0.75rem 0.75rem;
+    margin-top: 0.625rem;
+    background: #fafafb;
+}
+.box-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #45454f;
+    margin-bottom: 0.25rem;
+}
+.signer {
+    border-top: 1px solid #e4e4e9;
+    padding: 0.5rem 0;
+}
+.signer-role {
+    font-weight: 600;
+}
+.signer-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    align-items: baseline;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #e4e4e9;
+}
+.signer-who {
+    flex: 1 1 10rem;
+    font-weight: 600;
+}
+.signer-email {
+    flex: 1 1 12rem;
+    color: #6b6b76;
+    overflow-wrap: anywhere;
+}
+.signer-state {
+    font-weight: 600;
+    color: #1b3acc;
+}
+.preview-body table.sig {
+    margin-top: 1.5rem;
+}
+.preview-body table.sig td {
+    border: none;
+    padding: 0 1rem 0 0;
+    vertical-align: bottom;
+}
+.preview-body .sigline {
+    border-bottom: 1px solid #0e0e12;
+    height: 2rem;
+}
+.preview-body .siglabel {
+    font-size: 0.75rem;
+    color: #45454f;
+    margin-top: 0.25rem;
+}

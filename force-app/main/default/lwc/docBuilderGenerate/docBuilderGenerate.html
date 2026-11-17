@@ -1,0 +1,150 @@
+<template>
+    <lightning-quick-action-panel header="Generate document">
+        <template lwc:if={loading}>
+            <lightning-spinner alternative-text="Working" size="medium"></lightning-spinner>
+        </template>
+
+        <!-- Generated -->
+        <template lwc:if={result}>
+            <div class="done" role="status">
+                <p class="done-title">{result.fileName} was generated</p>
+                <p>It has been saved to Files on this record. {resultEmail}</p>
+            </div>
+            <lightning-button label="Open the file" onclick={openFile} class="slds-m-right_small"></lightning-button>
+            <lightning-button label="View the document record" onclick={openDocumentRecord} class="slds-m-right_small"></lightning-button>
+            <lightning-button label="Generate another" onclick={again}></lightning-button>
+        </template>
+
+        <!-- Sent for signature -->
+        <template lwc:if={signRequest}>
+            <c-doc-builder-sign-tracker record-id={signRequestId}></c-doc-builder-sign-tracker>
+            <div class="slds-m-top_medium">
+                <lightning-button label="Open the signature request" onclick={openSignRequest} class="slds-m-right_small"></lightning-button>
+                <lightning-button label="Send another" onclick={again}></lightning-button>
+            </div>
+        </template>
+
+        <!-- Guided steps or signing desk -->
+        <template lwc:if={showSignScreen}>
+            <c-doc-builder-sign-send
+                record-id={recordId}
+                template-ids={selectedTemplateIds}
+                language={language}
+                provider-name={provider.name}
+                provider-label={providerLabel}
+                document-name={documentName}
+                variant={signStyle}
+                signers={signers}
+                preview-html={previewHtml}
+                onsent={handleSignSent}
+                onback={handleSignBack}
+                onstylechange={handleStyleChange}
+            ></c-doc-builder-sign-send>
+        </template>
+
+        <template lwc:if={noTemplates}>
+            <p class="slds-text-color_weak">
+                There are no active document templates for this type of record yet. An admin can create one in the DocBuilder app.
+            </p>
+        </template>
+
+        <template lwc:if={showForm}>
+            <div class="layout">
+                <div class="options">
+                    <lightning-checkbox-group name="templates" label="Templates" options={templateOptions} value={selectedIds} onchange={handleTemplates}></lightning-checkbox-group>
+                    <template lwc:if={hasSeveral}>
+                        <p class="note">Selected templates are combined into one PDF, each starting on a new page.</p>
+                    </template>
+
+                    <template lwc:if={hasLanguages}>
+                        <lightning-combobox class="slds-m-top_small" label="Document language" options={languageOptions} value={language} onchange={handleLanguage}></lightning-combobox>
+                    </template>
+
+                    <lightning-radio-group class="slds-m-top_small" name="action" label="What to do" options={actionOptions} value={action} onchange={handleAction} type="radio"></lightning-radio-group>
+
+                    <template lwc:if={showDraftOption}>
+                        <lightning-input type="checkbox" class="slds-m-top_small" label="Mark as draft with a watermark" checked={draft} data-field="draft" onchange={handleCheck}></lightning-input>
+                    </template>
+
+                    <!-- Email -->
+                    <template lwc:if={isEmail}>
+                        <div class="box">
+                            <lightning-input type="text" label="To" placeholder="name@example.com, another@example.com" value={emailTo} data-field="emailTo" onchange={handleText}></lightning-input>
+                            <lightning-input type="text" label="Subject" placeholder="Defaults to the file name" value={emailSubject} data-field="emailSubject" onchange={handleText}></lightning-input>
+                            <lightning-textarea label="Message" placeholder="Please find the document attached." value={emailBody} data-field="emailBody" onchange={handleText}></lightning-textarea>
+                            <template lwc:if={emailMissing}>
+                                <p class="warn">Add at least one recipient.</p>
+                            </template>
+                        </div>
+                    </template>
+
+                    <!-- Built-in signing form -->
+                    <template lwc:if={showBuiltInSign}>
+                        <div class="box">
+                            <p class="box-title">Signers, in signing order</p>
+                            <template lwc:if={noSigners}>
+                                <p class="warn">This template has no signers. Add them under Signers in the Template Designer.</p>
+                            </template>
+                            <template for:each={signerRows} for:item="s">
+                                <div key={s.key} class="signer">
+                                    <span class="signer-role">{s.title}</span>
+                                    <lightning-input type="text" label="Name" value={s.name} data-index={s.index} data-prop="name" onchange={handleSigner}></lightning-input>
+                                    <lightning-input type="email" label="Email" value={s.email} data-index={s.index} data-prop="email" onchange={handleSigner}></lightning-input>
+                                </div>
+                            </template>
+                            <template lwc:if={signerMissingEmail}>
+                                <p class="warn">Every signer needs an email address.</p>
+                            </template>
+                            <lightning-input type="text" label="Subject" placeholder="Defaults to: Please sign, plus the file name" value={signSubject} data-field="signSubject" onchange={handleText}></lightning-input>
+                            <lightning-textarea label="Message to signers" value={signMessage} data-field="signMessage" onchange={handleText}></lightning-textarea>
+                            <p class="note">Prefer a bigger screen?</p>
+                            <lightning-button variant="base" label="Use guided steps" onclick={handleUseSteps} class="slds-m-right_medium"></lightning-button>
+                            <lightning-button variant="base" label="Use the signing desk" onclick={handleUseDesk}></lightning-button>
+                        </div>
+                    </template>
+
+                    <!-- A provider's own screen, supplied as a screen flow -->
+                    <template lwc:if={customFlow}>
+                        <div class="box">
+                            <lightning-flow flow-api-name={customFlow} flow-input-variables={flowInputs} onstatuschange={handleFlowStatus}></lightning-flow>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="preview">
+                    <div class="preview-head">
+                        <span class="preview-label">Live preview</span>
+                        <template lwc:if={hasSeveral}>
+                            <template for:each={viewTabs} for:item="v">
+                                <lightning-button key={v.id} label={v.label} variant={v.variant} data-id={v.id} onclick={handleView}></lightning-button>
+                            </template>
+                        </template>
+                    </div>
+                    <template lwc:if={previewError}>
+                        <div class="warn-box" role="alert">{previewError}</div>
+                    </template>
+                    <div class="page">
+                        <template lwc:if={draft}><div class="watermark" aria-hidden="true">DRAFT</div></template>
+                        <div class="preview-body" lwc:dom="manual"></div>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        <template lwc:if={error}>
+            <div class="warn-box slds-m-top_medium" role="alert">{error}</div>
+        </template>
+
+        <div slot="footer" class="footer">
+            <template lwc:if={showMainButton}>
+                <span class="summary">{summary}</span>
+            </template>
+            <span class="footer-actions">
+                <lightning-button label="Close" onclick={close} class="slds-m-right_small"></lightning-button>
+                <template lwc:if={showMainButton}>
+                    <lightning-button variant="brand" label={goLabel} onclick={go} disabled={cannotGo}></lightning-button>
+                </template>
+            </span>
+        </div>
+    </lightning-quick-action-panel>
+</template>

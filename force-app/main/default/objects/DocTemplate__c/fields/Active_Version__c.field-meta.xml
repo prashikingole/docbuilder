@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Active_Version__c</fullName>
+    <label>Active Version</label>
+    <type>Lookup</type><referenceTo>DocTemplateVersion__c</referenceTo><relationshipName>Active_For_Templates</relationshipName><relationshipLabel>Active For Templates</relationshipLabel><deleteConstraint>SetNull</deleteConstraint><required>false</required>
+</CustomField>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <deploymentStatus>Deployed</deploymentStatus>
+    <enableActivities>false</enableActivities>
+    <enableHistory>false</enableHistory>
+    <enableReports>true</enableReports>
+    <enableSearch>true</enableSearch>
+    <label>Generated Document</label>
+    <pluralLabel>Generated Documents</pluralLabel>
+    <nameField><displayFormat>DOC-{000000}</displayFormat><label>Document Ref</label><type>AutoNumber</type></nameField>
+    <sharingModel>ReadWrite</sharingModel>
+</CustomObject>

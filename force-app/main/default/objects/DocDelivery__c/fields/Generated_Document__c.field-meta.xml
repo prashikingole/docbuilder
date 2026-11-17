@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Generated_Document__c</fullName>
+    <label>Generated Document</label>
+    <type>MasterDetail</type><referenceTo>GeneratedDocument__c</referenceTo><relationshipName>Deliveries</relationshipName><relationshipLabel>Deliveries</relationshipLabel><relationshipOrder>0</relationshipOrder><reparentableMasterDetail>false</reparentableMasterDetail><writeRequiresMasterRead>false</writeRequiresMasterRead>
+</CustomField>

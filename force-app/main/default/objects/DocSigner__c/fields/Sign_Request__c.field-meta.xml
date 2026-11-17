@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Sign_Request__c</fullName>
+    <label>Signature Request</label>
+    <type>MasterDetail</type><referenceTo>DocSignRequest__c</referenceTo><relationshipName>Signers</relationshipName><relationshipLabel>Signers</relationshipLabel><relationshipOrder>0</relationshipOrder><reparentableMasterDetail>false</reparentableMasterDetail><writeRequiresMasterRead>false</writeRequiresMasterRead>
+</CustomField>

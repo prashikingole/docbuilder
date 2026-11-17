@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomMetadata xmlns="http://soap.sforce.com/2006/04/metadata" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <label>Dropbox Sign</label>
+    <protected>false</protected>
+    <values><field>Active__c</field><value xsi:type="xsd:boolean">false</value></values>
+    <values><field>Apex_Class__c</field><value xsi:type="xsd:string">DocBuilderSignDropbox</value></values>
+    <values><field>Button_Label__c</field><value xsi:type="xsd:string">Send with Dropbox Sign</value></values>
+    <values><field>Config_JSON__c</field><value xsi:type="xsd:string">{"testMode":true}</value></values>
+    <values><field>Custom_Flow__c</field><value xsi:nil="true"/></values>
+    <values><field>Named_Credential__c</field><value xsi:type="xsd:string">DocBuilder_DropboxSign</value></values>
+    <values><field>Screen_Style__c</field><value xsi:type="xsd:string">desk</value></values>
+    <values><field>Sort_Order__c</field><value xsi:type="xsd:double">30</value></values>
+</CustomMetadata>

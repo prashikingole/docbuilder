@@ -1,0 +1,501 @@
+:host {
+    display: block;
+    --ink: #0e0e12;
+    --muted: #6b6b76;
+    --line: #e4e4e9;
+    --accent: #2f5bff;
+    --accent-ink: #1b3acc;
+}
+.shell {
+    position: relative;
+    color: var(--ink);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+.topline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+}
+.heading {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+h3.big {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+}
+.quiet {
+    color: var(--muted);
+}
+.small {
+    font-size: 0.75rem;
+}
+.strong {
+    font-weight: 600;
+}
+.email {
+    color: #45454f;
+    overflow-wrap: anywhere;
+}
+.eyebrow {
+    align-self: flex-start;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+.label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+.alert {
+    background: #fdf1e3;
+    color: #6e3404;
+    border-radius: 0.75rem;
+    padding: 0.625rem 0.875rem;
+    font-weight: 600;
+}
+
+/* Buttons and switches */
+.seg {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.125rem;
+    padding: 0.25rem;
+    border: 1px solid var(--line);
+    background: #f1f1f4;
+    border-radius: 0.75rem;
+}
+.seg-btn {
+    min-height: 2.5rem;
+    padding: 0 0.875rem;
+    border: 0;
+    background: transparent;
+    color: #45454f;
+    border-radius: 0.5rem;
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+}
+.seg-btn.on {
+    background: var(--ink);
+    color: #fff;
+    font-weight: 600;
+}
+.btn {
+    min-height: 2.75rem;
+    padding: 0 1.125rem;
+    border: 1px solid #d4d4db;
+    background: #fff;
+    color: var(--ink);
+    border-radius: 0.75rem;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+.btn:hover {
+    border-color: var(--ink);
+}
+.btn.primary {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+    padding: 0 1.5rem;
+    box-shadow: 0 6px 16px rgba(47, 91, 255, 0.28);
+}
+.btn.primary:disabled {
+    border-color: #c9c9d1;
+    background: #c9c9d1;
+    color: #3a3a44;
+    box-shadow: none;
+    cursor: default;
+}
+.btn.wide {
+    width: 100%;
+    min-height: 3.25rem;
+    font-size: 0.9375rem;
+}
+.link {
+    align-self: flex-start;
+    min-height: 2.75rem;
+    padding: 0 0.25rem;
+    border: 0;
+    background: transparent;
+    color: var(--accent-ink);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+.btn:focus-visible,
+.link:focus-visible,
+.seg-btn:focus-visible,
+.stepper-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* Signer numbers, colour-matched to the signing areas in the preview */
+.num {
+    flex: 0 0 1.75rem;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 999px;
+    background: var(--c, #2f5bff);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8125rem;
+    font-weight: 700;
+}
+.s1 {
+    --c: #2f5bff;
+    --t: #f3f6ff;
+}
+.s2 {
+    --c: #b45309;
+    --t: #fff7ec;
+}
+.s3 {
+    --c: #0f766e;
+    --t: #ecf8f6;
+}
+.s4 {
+    --c: #7c3aed;
+    --t: #f5f0ff;
+}
+.s5 {
+    --c: #be185d;
+    --t: #fdf0f6;
+}
+.s6 {
+    --c: #334155;
+    --t: #f1f3f6;
+}
+.signer-text {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+.signer-edit {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.order {
+    border: 0;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.order legend {
+    padding: 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+.choice {
+    flex: 1 1 11rem;
+    display: flex;
+    gap: 0.625rem;
+    align-items: center;
+    min-height: 2.75rem;
+    border: 1px solid var(--line);
+    border-radius: 0.75rem;
+    padding: 0 0.875rem;
+}
+.choice input {
+    width: 1.125rem;
+    height: 1.125rem;
+    accent-color: var(--accent);
+}
+
+/* Guided steps */
+.stepper {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.stepper li {
+    flex: 1 1 9rem;
+}
+.stepper-item {
+    width: 100%;
+    display: flex;
+    gap: 0.625rem;
+    align-items: center;
+    min-height: 3rem;
+    border: 0;
+    border-radius: 0.75rem;
+    padding: 0 0.75rem;
+    background: #f1f1f4;
+    color: #45454f;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.stepper-item.on {
+    background: var(--ink);
+    color: #fff;
+    font-weight: 600;
+}
+.stepper-num {
+    flex: 0 0 1.625rem;
+    height: 1.625rem;
+    border-radius: 999px;
+    background: #fff;
+    border: 1px solid #d4d4db;
+    color: #45454f;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8125rem;
+    font-weight: 700;
+}
+.stepper-item.on .stepper-num {
+    border-color: #fff;
+    color: var(--ink);
+}
+.stepper-item.done .stepper-num {
+    background: #1e9e61;
+    border-color: #1e9e61;
+    color: #fff;
+}
+.pane {
+    flex: 999 1 22rem;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    padding: 0.5rem 0;
+}
+.pane p {
+    margin: -0.5rem 0 0;
+}
+.signer-card {
+    border: 1px solid var(--line);
+    border-radius: 1rem;
+    padding: 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.875rem;
+    align-items: center;
+}
+.review {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    align-items: flex-start;
+}
+.summary-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 0.625rem;
+}
+.summary-row > span:last-child {
+    text-align: right;
+}
+.summary-signer {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+.footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: space-between;
+    border-top: 1px solid var(--line);
+    padding-top: 1rem;
+}
+
+/* Signing desk */
+.desk {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem;
+    align-items: stretch;
+}
+.preview {
+    flex: 999 1 24rem;
+    min-width: 0;
+    box-sizing: border-box;
+    background-color: #f6f6f7;
+    background-image: radial-gradient(#d6d6dc 1px, transparent 1px);
+    background-size: 22px 22px;
+    border-radius: 1rem;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.small-preview {
+    flex: 1 1 18rem;
+    max-width: 26rem;
+}
+.page {
+    background: #fff;
+    border-radius: 0.375rem;
+    box-shadow:
+        0 1px 2px rgba(14, 14, 18, 0.06),
+        0 16px 40px rgba(14, 14, 18, 0.1);
+    padding: 2rem 2.25rem;
+    max-height: 30rem;
+    overflow-y: auto;
+}
+.panel {
+    flex: 1 1 18rem;
+    max-width: 24rem;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.125rem;
+}
+.group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+}
+.desk-signer {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+}
+.desk-foot {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+/* The document preview, with each signer's area in their colour */
+.preview-body {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+}
+.preview-body h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0 0 0.625rem;
+}
+.preview-body h2 {
+    font-size: 1.125rem;
+    font-weight: 700;
+    margin: 0.75rem 0 0.375rem;
+}
+.preview-body h3 {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    margin: 0.75rem 0 0.25rem;
+}
+.preview-body p {
+    margin: 0 0 0.625rem;
+}
+.preview-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.375rem 0 0.75rem;
+}
+.preview-body th {
+    text-align: left;
+    padding: 0.25rem;
+    border-bottom: 1.5px solid var(--ink);
+}
+.preview-body td {
+    padding: 0.25rem;
+    border-bottom: 1px solid var(--line);
+}
+.preview-body .r,
+.preview-body .right {
+    text-align: right;
+}
+.preview-body .c,
+.preview-body .center {
+    text-align: center;
+}
+.preview-body ol {
+    list-style: decimal;
+    margin: 0 0 0.625rem;
+    padding-left: 1.5rem;
+}
+.preview-body ul {
+    list-style: disc;
+    margin: 0 0 0.625rem;
+    padding-left: 1.5rem;
+}
+.preview-body img {
+    max-width: 100%;
+    height: auto;
+}
+.preview-body table.hf td {
+    border: none;
+    padding: 0;
+}
+.preview-body .pv-header,
+.preview-body .pv-footer {
+    font-size: 0.75rem;
+    color: #45454f;
+}
+.preview-body .pv-watermark {
+    display: none;
+}
+.preview-body table.sig {
+    counter-reset: signer;
+    border-collapse: separate;
+    border-spacing: 0.5rem;
+    margin: 1.25rem -0.5rem 0;
+    width: calc(100% + 1rem);
+}
+.preview-body table.sig td {
+    border: none;
+    padding: 0;
+    vertical-align: top;
+}
+.preview-body table.sig td[class^='s'] {
+    counter-increment: signer;
+    border: 1.5px solid var(--c);
+    background: var(--t);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.625rem;
+}
+.preview-body table.sig td[class^='s']::before {
+    content: counter(signer) ' signs here';
+    display: block;
+    font-weight: 700;
+    font-size: 0.75rem;
+    color: var(--c);
+}
+.preview-body .sigline {
+    border-bottom: 1px solid var(--c, #0e0e12);
+    height: 1.5rem;
+}
+.preview-body .siglabel {
+    font-size: 0.6875rem;
+    color: #45454f;
+    margin-top: 0.1875rem;
+}

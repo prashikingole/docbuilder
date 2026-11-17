@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Template__c</fullName>
+    <label>Template</label>
+    <type>MasterDetail</type><referenceTo>DocTemplate__c</referenceTo><relationshipName>Versions</relationshipName><relationshipLabel>Versions</relationshipLabel><relationshipOrder>0</relationshipOrder><reparentableMasterDetail>false</reparentableMasterDetail><writeRequiresMasterRead>false</writeRequiresMasterRead>
+</CustomField>

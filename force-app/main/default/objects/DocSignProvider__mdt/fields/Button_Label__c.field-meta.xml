@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Button_Label__c</fullName>
+    <fieldManageability>SubscriberControlled</fieldManageability>
+    <label>Button Label</label>
+    <type>Text</type><length>80</length><required>false</required><unique>false</unique><description>Text shown on the send button in the Generate dialog.</description>
+</CustomField>

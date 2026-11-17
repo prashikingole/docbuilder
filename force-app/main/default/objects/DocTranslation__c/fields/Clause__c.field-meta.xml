@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Clause__c</fullName>
+    <label>Clause</label>
+    <type>Lookup</type><referenceTo>DocClause__c</referenceTo><relationshipName>Translations</relationshipName><relationshipLabel>Translations</relationshipLabel><deleteConstraint>Cascade</deleteConstraint><required>false</required>
+</CustomField>

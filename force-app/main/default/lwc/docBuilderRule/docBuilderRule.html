@@ -1,0 +1,58 @@
+<template>
+    <template for:each={rows} for:item="c">
+        <div key={c.index} class="row">
+            <span class="num" aria-hidden="true">{c.num}</span>
+            <div class="fields">
+                <lightning-input
+                    type="text"
+                    variant="label-hidden"
+                    label="Field"
+                    placeholder="Field, e.g. Amount, Account.Industry or calc:Subtotal"
+                    value={c.field}
+                    data-index={c.index}
+                    data-prop="field"
+                    onchange={handleChange}
+                ></lightning-input>
+                <div class="pair">
+                    <lightning-combobox
+                        variant="label-hidden"
+                        label="Operator"
+                        options={ops}
+                        value={c.op}
+                        data-index={c.index}
+                        data-prop="op"
+                        onchange={handleChange}
+                    ></lightning-combobox>
+                    <lightning-input
+                        type="text"
+                        variant="label-hidden"
+                        label="Value"
+                        placeholder="Value"
+                        value={c.value}
+                        data-index={c.index}
+                        data-prop="value"
+                        onchange={handleChange}
+                    ></lightning-input>
+                    <lightning-button-icon
+                        icon-name="utility:delete"
+                        alternative-text="Remove condition"
+                        data-index={c.index}
+                        onclick={handleRemove}
+                    ></lightning-button-icon>
+                </div>
+            </div>
+        </div>
+    </template>
+    <lightning-button label="Add condition" icon-name="utility:add" onclick={handleAdd}></lightning-button>
+    <template lwc:if={hasRows}>
+        <lightning-input
+            type="text"
+            class="slds-m-top_x-small"
+            label="How to combine them"
+            placeholder="AND"
+            field-level-help="Leave blank or type AND for all, OR for any, or write custom logic with the condition numbers, e.g. 1 AND (2 OR NOT 3)."
+            value={logic}
+            onchange={handleLogic}
+        ></lightning-input>
+    </template>
+</template>
