@@ -31,6 +31,7 @@
 }
 .page {
     position: relative;
+    isolation: isolate;
     overflow: hidden;
     background: #fff;
     border: 1px solid #dde1e8;
@@ -41,18 +42,26 @@
     max-height: 26rem;
     overflow-y: auto;
 }
-.watermark {
+/* Matches the PDF: flat, centred in the page, behind the content. */
+.watermark,
+.preview-body .pv-watermark {
     position: absolute;
-    left: 0;
-    right: 0;
-    top: 5rem;
+    left: 1.75rem;
+    right: 1.75rem;
+    top: 50%;
+    transform: translateY(-50%);
     text-align: center;
-    font-size: 4.5rem;
+    font-size: clamp(2rem, 6vw, 4rem);
     font-weight: 700;
-    letter-spacing: 0.08em;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
     color: rgba(19, 26, 43, 0.08);
-    transform: rotate(-20deg);
     pointer-events: none;
+    z-index: -1;
+}
+/* A draft prints DRAFT instead of the template's own watermark, so the preview shows only one. */
+.watermark ~ .preview-body .pv-watermark {
+    display: none;
 }
 .note {
     font-size: 0.8125rem;
@@ -181,18 +190,6 @@
     border: none;
     padding: 0;
     vertical-align: middle;
-}
-.preview-body .pv-watermark {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 5rem;
-    text-align: center;
-    font-size: 3rem;
-    font-weight: 700;
-    color: rgba(19, 26, 43, 0.08);
-    transform: rotate(-20deg);
-    pointer-events: none;
 }
 .preview-body ul {
     list-style: disc;

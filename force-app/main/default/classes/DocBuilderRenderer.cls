@@ -44,7 +44,8 @@ public with sharing class DocBuilderRenderer {
         String header = headerHtml(ctx);
         String footer = footerHtml(ctx, true);
         String mark = watermarkText(ctx, draft);
-        String html = '<html><head><style>' + pageCss(ctx, header != null, footer != null) + CSS + '</style></head><body>';
+        PageBox box = pageBox(ctx, header != null, footer != null);
+        String html = '<html><head><style>' + pageCss(box, header != null, footer != null) + CSS + '</style></head><body>';
         // Running elements must come before the content they repeat over.
         if (header != null) {
             html += '<div class="dbheader">' + header + '</div>';
@@ -53,10 +54,67 @@ public with sharing class DocBuilderRenderer {
             html += '<div class="dbfooter">' + footer + '</div>';
         }
         if (mark != null) {
-            Integer size = mark.length() <= 6 ? 96 : (mark.length() <= 12 ? 64 : 44);
-            html += '<div style="position:fixed;top:38%;left:0;width:100%;text-align:center;font-size:' + size + 'pt;font-weight:bold;color:#E9EBF0;z-index:-1">' + mark + '</div>';
+            html += watermarkHtml(mark, box);
         }
         return html + bodyHtml + '</body></html>';
+    }
+
+    /** Page size and margins in millimetres. */
+    @TestVisible
+    class PageBox {
+        String dimensions;
+        Decimal width;
+        Decimal height;
+        Integer side;
+        Integer top;
+        Integer bottom;
+    }
+
+    static PageBox pageBox(DocBuilderContext ctx, Boolean hasHeader, Boolean hasFooter) {
+        Map<String, Object> page = ctx.pageSettings();
+        String size = page.get('size') == null ? 'A4' : String.valueOf(page.get('size')).toLowerCase();
+        Boolean landscape = 'landscape'.equalsIgnoreCase(String.valueOf(page.get('orientation')));
+        PageBox box = new PageBox();
+        Decimal shortSide;
+        Decimal longSide;
+        if (size == 'letter') {
+            box.dimensions = landscape ? '11in 8.5in' : '8.5in 11in';
+            shortSide = 215.9;
+            longSide = 279.4;
+        } else if (size == 'legal') {
+            box.dimensions = landscape ? '14in 8.5in' : '8.5in 14in';
+            shortSide = 215.9;
+            longSide = 355.6;
+        } else {
+            box.dimensions = landscape ? 'A4 landscape' : 'A4';
+            shortSide = 210;
+            longSide = 297;
+        }
+        box.width = landscape ? longSide : shortSide;
+        box.height = landscape ? shortSide : longSide;
+        String marginKey = page.get('margin') == null ? 'normal' : String.valueOf(page.get('margin')).toLowerCase();
+        box.side = MARGINS.containsKey(marginKey) ? MARGINS.get(marginKey) : 20;
+        box.top = box.side + (hasHeader ? 14 : 0);
+        box.bottom = box.side + (hasFooter ? 10 : 0);
+        return box;
+    }
+
+    /**
+     * The watermark, centred in the page's content area on every page. The PDF engine places fixed elements from the
+     * top-left corner of the content area and ignores percentage heights and vertical centring, so the position is
+     * worked out in millimetres from the page size and margins, and the text is sized to fit the page width.
+     */
+    @TestVisible
+    static String watermarkHtml(String mark, PageBox box) {
+        Decimal contentWidth = box.width - 2 * box.side;
+        Decimal contentHeight = box.height - box.top - box.bottom;
+        // Bold capitals in Helvetica average about 0.7 em wide; 1 pt = 0.3528 mm. Leave 10% of the width free.
+        Decimal fit = (contentWidth * 0.9) / (Math.max(mark.length(), 1) * 0.7 * 0.3528);
+        Integer size = Math.max(28, Math.min(96, fit.intValue()));
+        Decimal lineHeight = size * 0.3528 * 1.2;
+        Decimal top = ((contentHeight - lineHeight) / 2).setScale(1, RoundingMode.HALF_UP);
+        return '<div style="position:fixed;left:0;top:' + top + 'mm;width:' + contentWidth.setScale(1) + 'mm;text-align:center;' +
+            'font-size:' + size + 'pt;line-height:1.2;font-weight:bold;color:#E9EBF0;z-index:-1">' + mark + '</div>';
     }
 
     /** On-screen approximation of the document for the designer and the generate dialog. */
@@ -70,23 +128,8 @@ public with sharing class DocBuilderRenderer {
             (footer == null ? '' : '<div class="pv-footer">' + footer + '</div>');
     }
 
-    static String pageCss(DocBuilderContext ctx, Boolean hasHeader, Boolean hasFooter) {
-        Map<String, Object> page = ctx.pageSettings();
-        String size = page.get('size') == null ? 'A4' : String.valueOf(page.get('size')).toLowerCase();
-        Boolean landscape = 'landscape'.equalsIgnoreCase(String.valueOf(page.get('orientation')));
-        String dimensions;
-        if (size == 'letter') {
-            dimensions = landscape ? '11in 8.5in' : '8.5in 11in';
-        } else if (size == 'legal') {
-            dimensions = landscape ? '14in 8.5in' : '8.5in 14in';
-        } else {
-            dimensions = landscape ? 'A4 landscape' : 'A4';
-        }
-        String marginKey = page.get('margin') == null ? 'normal' : String.valueOf(page.get('margin')).toLowerCase();
-        Integer margin = MARGINS.containsKey(marginKey) ? MARGINS.get(marginKey) : 20;
-        Integer top = margin + (hasHeader ? 14 : 0);
-        Integer bottom = margin + (hasFooter ? 10 : 0);
-        return '@page{size:' + dimensions + ';margin:' + top + 'mm ' + margin + 'mm ' + bottom + 'mm ' + margin + 'mm;' +
+    static String pageCss(PageBox box, Boolean hasHeader, Boolean hasFooter) {
+        return '@page{size:' + box.dimensions + ';margin:' + box.top + 'mm ' + box.side + 'mm ' + box.bottom + 'mm ' + box.side + 'mm;' +
             (hasHeader ? '@top-center{content:element(dbheader)}' : '') +
             (hasFooter ? '@bottom-center{content:element(dbfooter)}' : '') + '}';
     }

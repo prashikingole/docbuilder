@@ -266,6 +266,9 @@ private class DocBuilderDesignerTest {
         System.assert(html.contains('version/download/068000000000001AAA" style="width:90px"'), 'Header logo');
         System.assert(html.contains('class="pagenumber"'));
         System.assert(html.contains('CONFIDENTIAL'), 'Amount is above 1000 so the watermark prints');
+        // A4 landscape with narrow margins, header and footer leaves a 273 x 162 mm content area. 12 letters fit at
+        // 82pt, and the 34.7 mm line is centred 63.6 mm from the top of the content area.
+        System.assert(html.contains('position:fixed;left:0;top:63.6mm;width:273.0mm;text-align:center;font-size:82pt;'), html);
         System.assert(html.contains('<strong>Dear</strong> Harbor Sample Co<br/>'), 'Rich formatting is kept and tokens are merged');
         System.assert(!html.contains('<script') && !html.contains('onclick') && !html.contains('javascript:'), 'Unsafe markup is removed');
         System.assert(html.contains('class="img right"') && html.contains('068000000000002AAA" style="width:300px"'));
