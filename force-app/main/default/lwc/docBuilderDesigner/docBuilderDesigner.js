@@ -14,6 +14,10 @@ import saveTranslations from '@salesforce/apex/DocBuilderDesignerController.save
 import listProviders from '@salesforce/apex/DocBuilderDesignerController.listProviders';
 import testProvider from '@salesforce/apex/DocBuilderDesignerController.testProvider';
 import calcValues from '@salesforce/apex/DocBuilderDesignerController.calcValues';
+import listVersions from '@salesforce/apex/DocBuilderDesignerController.listVersions';
+import makeVersionLive from '@salesforce/apex/DocBuilderDesignerController.makeVersionLive';
+import copyVersionToDraft from '@salesforce/apex/DocBuilderDesignerController.copyVersionToDraft';
+import LightningConfirm from 'lightning/confirm';
 
 const TOKEN = /\{\{\s*([^}|]+?)\s*(?:\|\s*([A-Za-z]+)\s*)?\}\}/g;
 const TYPE_LABELS = { heading: 'Heading', text: 'Text', table: 'Table', terms: 'Terms', image: 'Image', signature: 'Signature', pagebreak: 'Page break' };
@@ -564,10 +568,63 @@ export default class DocBuilderDesigner extends LightningElement {
         this.previewHtml = undefined;
         this.previewError = undefined;
         this.transParts = [];
+        // Saving, activating or switching template changes the version list.
+        this.versions = [];
+        if (this.settingsPanel === 'versions') {
+            this.loadVersions();
+        }
     }
 
     toggleNew() {
         this.showNew = !this.showNew;
+    }
+
+    // ---------- Import and export ----------
+
+    showImport = false;
+
+    handleOpenImport() {
+        this.showImport = true;
+        this.showNew = false;
+    }
+
+    handleCloseImport() {
+        this.showImport = false;
+    }
+
+    async handleImported(event) {
+        this.showImport = false;
+        await this.run(async () => {
+            this.apply(event.detail.state);
+            this.templates = await listTemplates();
+            await this.ensureObject(this.tpl.baseObject);
+            this.mode = 'design';
+            // Show straight away whether every matched field exists and is readable in this org.
+            const problem = await checkBody({ bodyJson: JSON.stringify(this.body), baseObject: this.tpl.baseObject });
+            this.health = problem ? { ok: false, text: 'Imported as a draft. ' + problem } : { ok: true, text: 'Imported as a draft. Every field it uses exists and is readable.' };
+            this.toast('Template imported', 'Review it, add any logos or images, then Activate when it is ready.');
+        });
+    }
+
+    /** Downloads the template as it is on screen (unsaved changes included), for importing into another org. */
+    handleExport() {
+        const data = {
+            format: 'docbuilder-template',
+            formatVersion: 1,
+            name: this.name,
+            baseObject: this.tpl.baseObject,
+            fileNamePattern: this.fileNamePattern || '',
+            languages: this.languages || '',
+            exportedFromVersion: this.tpl.versionNumber,
+            body: this.body
+        };
+        const link = document.createElement('a');
+        link.href = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(data, null, 2));
+        link.download = (this.name || 'template').replace(/[^\w\- ]+/g, '').trim() + '.docbuilder.json';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        this.toast('Template exported', 'Import the file in another org with Import. Translations and images are not included.');
     }
 
     handleNewField(event) {
@@ -715,6 +772,108 @@ export default class DocBuilderDesigner extends LightningElement {
         if (this.settingsPanel === 'calc') {
             this.refreshCalcValues();
         }
+        if (this.settingsPanel === 'versions') {
+            this.loadVersions();
+        }
+    }
+
+    // ---------- Versions ----------
+
+    versions = [];
+
+    get isPanelVersions() {
+        return this.settingsPanel === 'versions';
+    }
+
+    async loadVersions() {
+        if (!this.templateId) {
+            return;
+        }
+        try {
+            this.versions = await listVersions({ templateId: this.templateId });
+        } catch (e) {
+            this.toast('Versions could not be loaded', this.messageOf(e), 'error');
+        }
+    }
+
+    formatWhen(value) {
+        if (!value) {
+            return '';
+        }
+        try {
+            return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+        } catch (e) {
+            return String(value);
+        }
+    }
+
+    get hasDraftVersion() {
+        return this.versions.some((v) => v.status === 'Draft');
+    }
+
+    get versionRows() {
+        const hasDraft = this.hasDraftVersion;
+        return this.versions.map((v) => {
+            const isDraft = v.status === 'Draft';
+            const isLive = v.status === 'Active';
+            let detail;
+            if (isDraft) {
+                detail = 'Being edited here. Saved ' + this.formatWhen(v.lastModified) + (v.lastModifiedBy ? ' by ' + v.lastModifiedBy : '');
+            } else {
+                detail = (isLive ? 'Live since ' : 'Was live from ') + this.formatWhen(v.activatedOn || v.lastModified) + (v.lastModifiedBy ? ' · last changed by ' + v.lastModifiedBy : '');
+            }
+            return {
+                id: v.id,
+                title: 'Version ' + v.versionNumber,
+                number: v.versionNumber,
+                state: isDraft ? 'Draft' : isLive ? 'Live' : 'Earlier',
+                stateCls: isDraft ? 'ver-state draft' : isLive ? 'ver-state live' : 'ver-state',
+                detail,
+                canMakeLive: !isDraft && !isLive,
+                // With no draft, the live version is what the designer shows, so copying it would change nothing.
+                canCopy: !isDraft && (!isLive || hasDraft)
+            };
+        });
+    }
+
+    async handleMakeLive(event) {
+        const { id, number } = event.currentTarget.dataset;
+        const ok = await LightningConfirm.open({
+            label: `Put version ${number} live?`,
+            message: `Documents generated from now on use version ${number}. The version that is live now is kept and can be put back the same way. Your draft is not changed.`,
+            theme: 'warning'
+        });
+        if (!ok) {
+            return;
+        }
+        await this.run(async () => {
+            const keepDirty = this.dirty;
+            if (keepDirty) {
+                await this.save();
+            }
+            this.apply(await makeVersionLive({ templateId: this.templateId, versionId: id }));
+            this.templates = await listTemplates();
+            this.toast(`Version ${number} is live`, 'New documents use it straight away.' + (keepDirty ? ' Your unsaved changes were saved to the draft first.' : ''));
+        });
+    }
+
+    async handleCopyToDraft(event) {
+        const { id, number } = event.currentTarget.dataset;
+        const replacing = this.hasDraftVersion || this.dirty;
+        const ok = await LightningConfirm.open({
+            label: `Edit a copy of version ${number}?`,
+            message: replacing
+                ? `The draft is replaced by a copy of version ${number}, including its translations. Changes in the current draft${this.dirty ? ', including unsaved ones,' : ''} are lost. The live version is not affected until you activate.`
+                : `A new draft is started from version ${number}, including its translations. The live version is not affected until you activate.`,
+            theme: replacing ? 'warning' : 'info'
+        });
+        if (!ok) {
+            return;
+        }
+        await this.run(async () => {
+            this.apply(await copyVersionToDraft({ templateId: this.templateId, versionId: id }));
+            this.toast(`Draft now matches version ${number}`, 'Change it if needed, then Activate to put it live.');
+        });
     }
 
     get isPanelTemplate() {
@@ -1612,7 +1771,7 @@ export default class DocBuilderDesigner extends LightningElement {
     }
 
     get panelTitle() {
-        const titles = { template: 'Name and languages', page: 'Page setup', headerfooter: 'Header, footer, watermark', calc: 'Calculated values', signers: 'Signers', conditions: 'Conditions', messages: 'Email and signing wording' };
+        const titles = { template: 'Name and languages', page: 'Page setup', headerfooter: 'Header, footer, watermark', calc: 'Calculated values', signers: 'Signers', conditions: 'Conditions', messages: 'Email and signing wording', versions: 'Versions' };
         return titles[this.settingsPanel] || 'Template';
     }
 
@@ -1667,7 +1826,14 @@ export default class DocBuilderDesigner extends LightningElement {
                 elseSegs: this.segments(b.elseText),
                 hasElse: !!b.elseText,
                 source: b.source || 'no list chosen yet',
-                columns: (b.columns || []).map((c, i) => ({ key: i, header: c.header || c.field, field: c.field, cls: c.align ? 'cell align-' + c.align : 'cell' })),
+                columns: (b.columns || []).map((c, i) => ({
+                    key: i,
+                    header: c.header || c.field,
+                    field: c.field,
+                    cls: c.align ? 'cell align-' + c.align : 'cell',
+                    conditional: c.show === 'filled' || c.show === 'rule',
+                    showTitle: c.show === 'filled' ? 'Printed only when some row has a value' : c.show === 'rule' ? 'Printed only when its rule is met' : ''
+                })),
                 noColumns: !(b.columns || []).length,
                 rowRule: this.ruleSummary(b.rowFilter).replace('Show only if', 'Only rows where'),
                 totals: (b.totals || []).map((t, i) => ({ key: i, label: t.label, calc: t.calc })),
@@ -1797,7 +1963,14 @@ export default class DocBuilderDesigner extends LightningElement {
             level: String(block.level || 1),
             align: block.align || '',
             orderDirection: block.orderDirection || 'ASC',
-            columns: (block.columns || []).map((c, index) => ({ ...c, index, align: c.align || '', format: c.format || '' })),
+            columns: (block.columns || []).map((c, index) => ({
+                ...c,
+                index,
+                align: c.align || '',
+                format: c.format || '',
+                show: c.show || 'always',
+                showRule: c.show === 'rule'
+            })),
             totals: (block.totals || []).map((t, index) => ({ ...t, index })),
             items: (block.items || []).map((item, index) => ({ ...item, index, num: index + 1 }))
         };
@@ -2065,7 +2238,15 @@ export default class DocBuilderDesigner extends LightningElement {
             if (!block) {
                 return;
             }
-            const holder = target === 'item' ? block.items[index] : block;
+            let holder = block;
+            if (target === 'item') {
+                holder = block.items[index];
+            } else if (target === 'column') {
+                holder = (block.columns || [])[index];
+            }
+            if (!holder) {
+                return;
+            }
             const key = target === 'rowFilter' ? 'rowFilter' : 'showIf';
             if (rule) {
                 holder[key] = rule;
@@ -2104,12 +2285,24 @@ export default class DocBuilderDesigner extends LightningElement {
             if (!rows || !rows[index]) {
                 return;
             }
-            if (value === '' || value === null || value === undefined) {
+            if (value === '' || value === null || value === undefined || (prop === 'show' && value === 'always')) {
                 delete rows[index][prop];
             } else {
                 rows[index][prop] = value;
             }
+            // A column's rule only applies while "Only when a rule is met" is chosen.
+            if (prop === 'show' && value !== 'rule') {
+                delete rows[index].showIf;
+            }
         });
+    }
+
+    get columnShowOptions() {
+        return [
+            { label: 'Always', value: 'always' },
+            { label: 'Only when some row has a value', value: 'filled' },
+            { label: 'Only when a rule is met', value: 'rule' }
+        ];
     }
 
     handleItemText(event) {

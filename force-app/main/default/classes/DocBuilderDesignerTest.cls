@@ -227,6 +227,134 @@ private class DocBuilderDesignerTest {
     }
 
     @IsTest
+    static void tableColumnsShowOnlyWhenFilledOrWhenTheirRuleIsMet() {
+        Account acct = new Account(Name = 'Column Co');
+        insert acct;
+        insert new List<Contact>{
+            new Contact(AccountId = acct.Id, LastName = 'Nair', Department = 'Operations'),
+            new Contact(AccountId = acct.Id, LastName = 'Rivera')
+        };
+        Opportunity opp = new Opportunity(AccountId = acct.Id, Name = 'Deal C', StageName = 'Prospecting', CloseDate = Date.today(), Amount = 3000);
+        insert opp;
+
+        List<Object> columns = new List<Object>{
+            new Map<String, Object>{ 'header' => 'Surname', 'field' => 'LastName' },
+            new Map<String, Object>{ 'header' => 'DeptCol', 'field' => 'Department', 'show' => 'filled' },
+            new Map<String, Object>{ 'header' => 'TitleCol', 'field' => 'Title', 'show' => 'filled' },
+            new Map<String, Object>{
+                'header' => 'MailCol',
+                'field' => 'Email',
+                'show' => 'rule',
+                'showIf' => new Map<String, Object>{ 'conditions' => new List<Object>{ cond('Amount', 'gt', 5000) } }
+            },
+            new Map<String, Object>{
+                'header' => 'PhoneCol',
+                'field' => 'Phone',
+                'show' => 'rule',
+                'showIf' => new Map<String, Object>{ 'conditions' => new List<Object>{ cond('Amount', 'gt', 1000) } }
+            }
+        };
+        List<Object> blocks = new List<Object>{
+            new Map<String, Object>{
+                'id' => 'people',
+                'type' => 'table',
+                'source' => 'Account.Contacts',
+                'columns' => columns,
+                'totals' => new List<Object>{ new Map<String, Object>{ 'label' => 'People', 'calc' => 'People' } }
+            },
+            new Map<String, Object>{
+                'id' => 'empty',
+                'type' => 'table',
+                'source' => 'Account.Contacts',
+                'columns' => new List<Object>{ new Map<String, Object>{ 'header' => 'OnlyTitleCol', 'field' => 'Title', 'show' => 'filled' } }
+            }
+        };
+        List<Object> calculations = new List<Object>{ new Map<String, Object>{ 'name' => 'People', 'type' => 'count', 'source' => 'Account.Contacts' } };
+        String body = JSON.serialize(new Map<String, Object>{ 'blocks' => blocks, 'calculations' => calculations });
+
+        System.assertEquals(null, DocBuilderDesignerController.check(body, 'Opportunity'), 'Fields used by column rules are checked too');
+        String html = DocBuilderEngine.previewHtml(body, 'Opportunity', opp.Id, null, null);
+        System.assert(html.contains('Surname') && html.contains('DeptCol'), 'Always and filled columns print: ' + html);
+        System.assert(!html.contains('TitleCol'), 'A column that is blank in every row is left out');
+        System.assert(!html.contains('MailCol'), 'A column whose rule is not met is left out');
+        System.assert(html.contains('PhoneCol'), 'A column whose rule is met prints');
+        System.assert(html.contains('colspan="2"'), 'The total row spans only the printed columns: ' + html);
+        System.assert(!html.contains('OnlyTitleCol'), 'A table whose every column is hidden is left out');
+    }
+
+    @IsTest
+    static void earlierVersionsCanBePutLiveOrCopiedIntoTheDraft() {
+        String v1Body = '{"blocks":[{"id":"a","type":"text","text":"ONE"}]}';
+        String v2Body = '{"blocks":[{"id":"a","type":"text","text":"TWO"}]}';
+        Id templateId = DocBuilderSamples.createTemplate('Versioned', 'Opportunity', null, v1Body);
+        DocBuilderDesignerController.saveDraft(templateId, 'Versioned', null, null, v2Body);
+        DocBuilderDesignerController.TemplateState state = DocBuilderDesignerController.activate(templateId);
+        Id v2 = state.versionId;
+        insert new DocTranslation__c(Template_Version__c = v2, Language__c = 'fr', Block_Id__c = 'a', Part__c = 'text', Source_Text__c = 'TWO', Translated_Text__c = 'DEUX');
+
+        List<DocBuilderDesignerController.VersionInfo> versions = DocBuilderDesignerController.listVersions(templateId);
+        System.assertEquals(2, versions.size());
+        System.assertEquals(2, versions[0].versionNumber, 'Newest first');
+        System.assertEquals('Active', versions[0].status);
+        System.assertEquals('Archived', versions[1].status);
+        Id v1 = versions[1].id;
+
+        // Put version 1 back live.
+        state = DocBuilderDesignerController.makeVersionLive(templateId, v1);
+        System.assertEquals(v1, [SELECT Active_Version__c FROM DocTemplate__c WHERE Id = :templateId].Active_Version__c);
+        System.assertEquals('Archived', [SELECT Status__c FROM DocTemplateVersion__c WHERE Id = :v2].Status__c);
+        System.assertEquals(1, state.activeVersionNumber);
+
+        // Copy version 2 into a new draft, translations included, without touching what is live.
+        state = DocBuilderDesignerController.copyVersionToDraft(templateId, v2);
+        System.assertEquals('Draft', state.versionStatus);
+        System.assertEquals(3, state.versionNumber);
+        System.assert(state.bodyJson.contains('TWO'));
+        List<DocTranslation__c> copied = [SELECT Translated_Text__c FROM DocTranslation__c WHERE Template_Version__c = :state.versionId];
+        System.assertEquals(1, copied.size());
+        System.assertEquals('DEUX', copied[0].Translated_Text__c);
+        System.assertEquals(v1, [SELECT Active_Version__c FROM DocTemplate__c WHERE Id = :templateId].Active_Version__c);
+
+        // Copying again replaces the draft's content instead of adding another draft.
+        Id draftId = state.versionId;
+        state = DocBuilderDesignerController.copyVersionToDraft(templateId, v1);
+        System.assertEquals(draftId, state.versionId);
+        System.assert(state.bodyJson.contains('ONE'));
+        System.assertEquals(0, [SELECT COUNT() FROM DocTranslation__c WHERE Template_Version__c = :draftId]);
+
+        // Refusals: the draft cannot be put live or copied this way, nor the live version put live again,
+        // nor a version of another template.
+        Id otherTemplate = DocBuilderSamples.createTemplate('Other', 'Opportunity', null, v1Body);
+        Id otherVersion = [SELECT Active_Version__c FROM DocTemplate__c WHERE Id = :otherTemplate].Active_Version__c;
+        Map<String, String> attempts = new Map<String, String>{ 'live-draft' => 'is the draft', 'live-live' => 'already live', 'copy-draft' => 'already the draft', 'live-other' => 'not part of this template' };
+        for (String attempt : attempts.keySet()) {
+            try {
+                if (attempt == 'live-draft') {
+                    DocBuilderDesignerController.makeVersionLive(templateId, draftId);
+                } else if (attempt == 'live-live') {
+                    DocBuilderDesignerController.makeVersionLive(templateId, v1);
+                } else if (attempt == 'copy-draft') {
+                    DocBuilderDesignerController.copyVersionToDraft(templateId, draftId);
+                } else {
+                    DocBuilderDesignerController.makeVersionLive(templateId, otherVersion);
+                }
+                System.assert(false, attempt + ' should be refused');
+            } catch (AuraHandledException e) {
+                System.assert(e.getMessage().contains(attempts.get(attempt)), attempt + ': ' + e.getMessage());
+            }
+        }
+
+        // A version that no longer passes the field check is not put live.
+        update new DocTemplateVersion__c(Id = v2, Body_JSON__c = '{"blocks":[{"id":"a","type":"text","text":"{{No_Such_Field__c}}"}]}');
+        try {
+            DocBuilderDesignerController.makeVersionLive(templateId, v2);
+            System.assert(false, 'A broken version should not go live');
+        } catch (AuraHandledException e) {
+            System.assert(e.getMessage().contains('cannot be put live'), e.getMessage());
+        }
+    }
+
+    @IsTest
     static void pageSetupHeaderFooterWatermarkImagesAndRichText() {
         Opportunity opp = makeData();
         Map<String, Object> page = new Map<String, Object>{

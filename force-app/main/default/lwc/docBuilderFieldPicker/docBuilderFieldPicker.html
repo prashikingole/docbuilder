@@ -1,0 +1,8 @@
+<template>
+    <div class="picker">
+        <lightning-combobox variant={variant} label={label} placeholder="Choose a field" options={options} value={top} onchange={handleTop}></lightning-combobox>
+        <template lwc:if={isRelated}>
+            <lightning-combobox variant="label-hidden" label="Field of the related record" placeholder={relPlaceholder} options={relOptions} value={relValue} onchange={handleRel}></lightning-combobox>
+        </template>
+    </div>
+</template>

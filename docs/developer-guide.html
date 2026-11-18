@@ -168,7 +168,7 @@ a { color: var(--accent-ink); }
         <tbody>
           <tr><td><code>heading</code></td><td><code>text</code>, <code>level</code> 1–3</td></tr>
           <tr><td><code>text</code></td><td><code>text</code>, <code>rich</code> (true for HTML text)</td></tr>
-          <tr><td><code>table</code></td><td><code>source</code>, <code>columns</code> [{header, field, align, format}], <code>rowFilter</code>, <code>orderBy</code>, <code>orderDirection</code>, <code>totals</code> [{label, calc, format}], <code>hideWhenEmpty</code></td></tr>
+          <tr><td><code>table</code></td><td><code>source</code>, <code>columns</code> [{header, field, align, format, show, showIf}] (<code>show</code>: <code>always</code> (default), <code>filled</code> (printed only when some shown row is not blank or zero), or <code>rule</code> (printed only when the RULE in <code>showIf</code> passes on the record)), <code>rowFilter</code>, <code>orderBy</code>, <code>orderDirection</code>, <code>totals</code> [{label, calc, format}], <code>hideWhenEmpty</code></td></tr>
           <tr><td><code>image</code></td><td><code>contentVersionId</code>, <code>width</code> (pixels)</td></tr>
           <tr><td><code>terms</code></td><td><code>title</code>, <code>items</code> [{id, text, showIf}], <code>clauseCategory</code></td></tr>
           <tr><td><code>signature</code></td><td><code>showDate</code>, <code>showName</code></td></tr>

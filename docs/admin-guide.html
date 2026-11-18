@@ -82,7 +82,8 @@ a { color: var(--accent-ink); }
       <li><a href="#signers">Signers</a></li>
       <li><a href="#emails">Email and signing wording</a></li>
       <li><a href="#languages">Languages</a></li>
-      <li><a href="#versions">Preview, check and activate</a></li>
+      <li><a href="#versions">Preview, check, activate and versions</a></li>
+      <li><a href="#import">Import and export templates</a></li>
       <li><a href="#esign">Set up e-signature</a></li>
       <li><a href="#status">Signature status updates</a></li>
       <li><a href="#settings">Organization limits</a></li>
@@ -144,7 +145,7 @@ a { color: var(--accent-ink); }
         <li>Enter a name and the object it's built on, by API name, for example <code>Quote</code>, <code>Opportunity</code> or <code>My_Object__c</code>.</li>
         <li>Add blocks from the rail on the left: <span class="ui">Text</span>, <span class="ui">Heading</span>, <span class="ui">Table</span>, <span class="ui">Image</span>, <span class="ui">Terms</span>, <span class="ui">Sign</span> and <span class="ui">Break</span> (a page break).</li>
         <li>Click a block to edit it in <span class="ui">Settings</span> on the right. Use the arrows to move it and the bin to delete it.</li>
-        <li>Use the bar under the page for page setup, header and footer, conditions, signers, email wording, calculated values, and the template's name and languages.</li>
+        <li>Use the bar above the page for page setup, header and footer, conditions, signers, email wording, calculated values, and the template's name and languages.</li>
         <li>Click <span class="ui">Save draft</span>, then <span class="ui">Activate</span> when it's ready.</li>
       </ol>
     </section>
@@ -188,7 +189,7 @@ a { color: var(--accent-ink); }
           <tr><td><code>… {{else}} …</code></td><td>the alternative, inside any of the above</td></tr>
         </tbody>
       </table></div>
-      <p>A part with more than a "has a value" check gets its own condition automatically, named Part1, Part2 and so on. It is removed when no text uses it. Use the <span class="ui">Conditions</span> panel in the bar under the page only for a rule shared by several texts.</p>
+      <p>A part with more than a "has a value" check gets its own condition automatically, named Part1, Part2 and so on. It is removed when no text uses it. Use the <span class="ui">Conditions</span> panel in the bar above the page only for a rule shared by several texts.</p>
     </section>
 
     <section id="tables">
@@ -196,6 +197,13 @@ a { color: var(--accent-ink); }
       <ul>
         <li><span class="ui">Rows come from</span>: a list on this record (Quote Line Items, Opportunity Products), or a list on a related record, typed as <code>Account.Contacts</code>.</li>
         <li><span class="ui">Columns</span>: heading, field, alignment and format. Click fields in the Fields tab to add columns.</li>
+        <li><span class="ui">Show this column</span>, for each column:
+          <ul>
+            <li><b>Always</b> (the default).</li>
+            <li><b>Only when some row has a value</b>: the column is left out when every row the table shows is blank or zero. For example, a Discount column disappears from quotes where nothing is discounted.</li>
+            <li><b>Only when a rule is met</b>: a rule on the record, for example show Tax only when Billing Country is not United States.</li>
+          </ul>
+          Conditional columns are marked <b>if</b> on the page. The remaining columns share the width, and summary rows line up with them. If every column is left out, the table isn't printed.</li>
         <li><span class="ui">Which rows to include</span>: a rule applied to each row.</li>
         <li><span class="ui">Sorting</span>: any field, ascending or descending.</li>
         <li><span class="ui">Summary rows</span>: a label and a calculated value under the table. A count, sum, average, lowest or highest over the table's own list adds up only the rows the table shows, after its row filter. Totals of money or percentages print in the field's format unless you choose another.</li>
@@ -237,7 +245,7 @@ a { color: var(--accent-ink); }
 
     <section id="signers">
       <h2>Signers</h2>
-      <p>Open <span class="ui">Signers</span> in the bar under the page, add signers in signing order, and add a <span class="ui">Sign</span> block where they sign. For each signer choose <span class="ui">Who signs</span>:</p>
+      <p>Open <span class="ui">Signers</span> in the bar above the page, add signers in signing order, and add a <span class="ui">Sign</span> block where they sign. For each signer choose <span class="ui">Who signs</span>:</p>
       <ul>
         <li><b>A person on this record</b>: pick a user, contact or lead lookup, such as Owner or Contact.</li>
         <li><b>Everyone in a related list</b>: for example every Opportunity Contact Role, with an optional filter such as Role equals Decision Maker. People without an email address are left out. Up to 50 people.</li>
@@ -248,7 +256,7 @@ a { color: var(--accent-ink); }
 
     <section id="emails">
       <h2>Email and signing wording</h2>
-      <p>Under <span class="ui">Emails</span> in the bar under the page, set the subject and message used when this document is emailed, and when it is sent for signature. Fields and conditions work here too. They prefill the Generate Document dialog, where senders can still change them.</p>
+      <p>Under <span class="ui">Emails</span> in the bar above the page, set the subject and message used when this document is emailed, and when it is sent for signature. Fields and conditions work here too. They prefill the Generate Document dialog, where senders can still change them.</p>
     </section>
 
     <section id="languages">
@@ -262,13 +270,47 @@ a { color: var(--accent-ink); }
     </section>
 
     <section id="versions">
-      <h2>Preview, check and activate</h2>
+      <h2>Preview, check, activate and go back to an earlier version</h2>
       <ul>
         <li><span class="ui">Preview</span>: pick any record to see exactly what it would produce. Uses your unsaved changes and saves nothing.</li>
-        <li><span class="ui">Check fields</span> (in the bar under the page): confirms every field the template uses exists and is readable.</li>
+        <li><span class="ui">Check fields</span> (in the bar above the page): confirms every field the template uses exists and is readable.</li>
         <li><span class="ui">Save draft</span>: saves without affecting users. Editing an active template creates a new draft version.</li>
         <li><span class="ui">Activate</span>: makes the draft live. The previous version is archived, never deleted. Users always generate from the active version.</li>
       </ul>
+      <h3>Versions</h3>
+      <p>Open <span class="ui">Versions</span> in the bar above the page to see every version: the draft, the live one, and earlier ones, with when each went live and who last changed it.</p>
+      <ul>
+        <li><span class="ui">Put live</span> (on an earlier version): it becomes the live version straight away, for example to undo a change that went live by mistake. The version that was live is kept, so you can switch back the same way. Your draft is not touched. The version is checked first; if a field it uses has since been deleted or hidden, it isn't put live and the problem is shown.</li>
+        <li><span class="ui">Edit a copy</span>: copies that version, with its translations, into the draft, so you can change it and then Activate. If there is already a draft, its content is replaced (you're asked first). Nothing changes for users until you activate.</li>
+      </ul>
+      <p>Each Generated Document record shows which template version it was made from, so switching versions never changes documents already produced.</p>
+    </section>
+
+    <section id="import">
+      <h2>Import templates from Word, Conga, DocuSign Gen or CPQ</h2>
+      <p>Bring existing templates over instead of rebuilding them. Click <span class="ui">Import</span> next to the template picker.</p>
+      <ol>
+        <li>Choose a file or paste the template, enter a name and the object it's built on (for example Opportunity, Quote or <code>SBQQ__Quote__c</code>), and click <span class="ui">Next</span>.
+          <ul>
+            <li><b>Word (.docx)</b>, including Conga Composer and DocuSign Gen templates. Older .doc files must be saved as .docx first. The file is read in your browser and isn't uploaded.</li>
+            <li><b>Web page (.htm, .html) or pasted HTML</b>, for example the content of a Salesforce CPQ template section.</li>
+            <li><b>Text (.txt)</b> or pasted text.</li>
+            <li><b>A DocBuilder export (.json)</b> from another org. It's created straight away, with no mapping step.</li>
+          </ul>
+        </li>
+        <li>Review what was found:
+          <ul>
+            <li><b>Tables</b>: for a table whose row repeats for each related record, choose the list, such as Quote Line Items. DocBuilder guesses it when the template names the list, for example <code>TableStart:LineItems</code> or <code>{{#each OpportunityLineItems}}</code>. The table's heading row becomes the column headings, and rows under the repeating row, such as totals, print under the table. Any other table is laid out as blocks side by side (up to four per row).</li>
+            <li><b>Merge fields</b>: each one is matched to a Salesforce field. Suggestions are filled in by comparing names and labels: <code>ACCOUNT_BILLINGCITY</code>, <code>Opportunity.Account.Name</code>, <code>{!quote.SBQQ__Account__r.Name}</code> and <code>Close Date</code> are all recognised. Check each one, and change it from the lists where needed. You can also choose to print the name as text or leave it out. Fields you don't match print as <code>[Name]</code>, so they're easy to find later.</li>
+          </ul>
+        </li>
+        <li>Click <span class="ui">Create draft template</span>. The template opens in the designer and the field check runs straight away. Nothing changes for users until you activate it.</li>
+      </ol>
+      <p><b>What comes over:</b> headings, paragraphs with bold, italic and underline, alignment, bullet and numbered lists, page breaks, tables, and the header and footer text (with page numbers when the footer has them).</p>
+      <p><b>What to redo by hand:</b> pictures and logos (add an Image block), fonts and colours, repeating sections outside tables, and conditional or calculated logic written in the other tool's own syntax. Add those with conditions and calculated values.</p>
+      <h3>Moving templates between orgs</h3>
+      <p><span class="ui">Export</span> (next to Import) downloads the open template, including unsaved changes, as a .json file. Import it in the other org. Translations and image files aren't included; images need to be uploaded again there.</p>
+      <p>Merge fields recognised: <code>{{Field}}</code>, <code>{!Field}</code>, <code>«Field»</code>, <code>&lt;&lt;Field&gt;&gt;</code>, <code>[[Field]]</code>, <code>{Object.Field}</code> and Word MERGEFIELD fields. Repeating rows are recognised from <code>{{#each List}}</code> … <code>{{/each}}</code>, <code>{#List}</code> … <code>{/List}</code> and <code>TableStart:List</code> … <code>TableEnd:List</code>.</p>
     </section>
 
     <section id="esign">

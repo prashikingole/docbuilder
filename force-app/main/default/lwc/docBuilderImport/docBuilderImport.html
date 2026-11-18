@@ -1,0 +1,111 @@
+<template>
+    <div class="backdrop" role="presentation"></div>
+    <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="imp-title">
+        <template lwc:if={busy}>
+            <lightning-spinner alternative-text="Working" size="medium"></lightning-spinner>
+        </template>
+        <header class="head">
+            <h2 id="imp-title">Import a template</h2>
+            <button type="button" class="btn ghost" onclick={handleClose}>Close</button>
+        </header>
+
+        <template lwc:if={error}>
+            <div class="error" role="alert">{error}</div>
+        </template>
+
+        <template lwc:if={isSource}>
+            <div class="body">
+                <p class="hint">
+                    Bring over a template made in Word, Conga Composer, DocuSign Gen or another tool. Merge fields such as {fieldExamples} and Word MERGEFIELD fields are recognised and matched to Salesforce fields in the next step.
+                    It is created as a draft, so nothing changes for users until you activate it.
+                </p>
+                <div class="source">
+                    <div class="source-card">
+                        <h3>A file</h3>
+                        <p class="hint">Word (.docx), web page (.htm, .html), text (.txt), or a DocBuilder export (.json).</p>
+                        <input type="file" class="file" accept=".docx,.dotx,.htm,.html,.txt,.json" onchange={handleFile} aria-label="Template file" />
+                        <template lwc:if={fileLabel}><p class="chosen">{fileLabel}</p></template>
+                    </div>
+                    <div class="source-card">
+                        <h3>Or paste it</h3>
+                        <p class="hint">For example the HTML of a Salesforce CPQ template section, or plain text.</p>
+                        <lightning-textarea variant="label-hidden" label="Pasted template" value={pasted} data-field="pasted" class="paste" onchange={handleInput}></lightning-textarea>
+                    </div>
+                </div>
+                <div class="pair">
+                    <lightning-input label="Template name" value={name} data-field="name" onchange={handleInput}></lightning-input>
+                    <lightning-input
+                        label="Built on (object API name)"
+                        placeholder="e.g. Opportunity, Quote or SBQQ__Quote__c"
+                        value={baseObject}
+                        data-field="baseObject"
+                        field-level-help="The record type documents are generated from. For a DocBuilder export this can be left blank to use the one in the file."
+                        onchange={handleInput}
+                    ></lightning-input>
+                </div>
+            </div>
+            <footer class="foot">
+                <button type="button" class="btn" onclick={handleClose}>Cancel</button>
+                <button type="button" class="btn primary" onclick={handleRead}>Next</button>
+            </footer>
+        </template>
+
+        <template lwc:if={isMap}>
+            <div class="body">
+                <p class="summary">{summary}</p>
+                <template lwc:if={hasWarnings}>
+                    <ul class="warnings">
+                        <template for:each={warnings} for:item="w">
+                            <li key={w}>{w}</li>
+                        </template>
+                    </ul>
+                </template>
+
+                <template lwc:if={hasTables}>
+                    <h3>Tables</h3>
+                    <p class="hint">A table whose row repeats for each related record (such as products) becomes a DocBuilder table. Any other table is laid out as blocks side by side.</p>
+                    <template for:each={tableRows} for:item="t">
+                        <div key={t.key} class="card">
+                            <p class="preview">{t.listLabel}: {t.preview}</p>
+                            <template lwc:if={t.canRepeat}>
+                                <lightning-combobox label="Repeat the row with merge fields for each" options={listOptions} value={t.list} data-key={t.key} onchange={handleTableList}></lightning-combobox>
+                            </template>
+                            <template lwc:else>
+                                <p class="hint">No merge fields, so it is laid out as blocks side by side.</p>
+                            </template>
+                            <template lwc:if={t.repeats}>
+                                <div class="fields">
+                                    <template for:each={t.fields} for:item="f">
+                                        <div key={f.name} class="field-row">
+                                            <span class="token" title={f.name}>{f.name}</span>
+                                            <c-doc-builder-field-picker object-name={t.childObject} value={f.value} allow-skip data-key={t.key} data-name={f.name} onchange={handleTableField}></c-doc-builder-field-picker>
+                                            <span class={f.statusCls}>{f.status}</span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </template>
+
+                <template lwc:if={hasParentRows}>
+                    <h3>Merge fields</h3>
+                    <p class="hint">Suggested matches are filled in. Check each one and choose another field where needed.</p>
+                    <div class="fields">
+                        <template for:each={parentRows} for:item="f">
+                            <div key={f.name} class="field-row">
+                                <span class="token" title={f.name}>{f.name}</span>
+                                <c-doc-builder-field-picker object-name={baseObject} value={f.value} allow-skip data-name={f.name} onchange={handleParentField}></c-doc-builder-field-picker>
+                                <span class={f.statusCls}>{f.status}</span>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+            <footer class="foot">
+                <button type="button" class="btn" onclick={handleBack}>Back</button>
+                <button type="button" class="btn primary" onclick={handleCreate}>Create draft template</button>
+            </footer>
+        </template>
+    </section>
+</template>

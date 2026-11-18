@@ -26,6 +26,10 @@
                     <span class="ver" title={statusLabel}>{versionChip}</span>
                 </template>
                 <button type="button" class="btn ghost" onclick={toggleNew}>New</button>
+                <button type="button" class="btn ghost" onclick={handleOpenImport}>Import</button>
+                <template lwc:if={hasTemplate}>
+                    <button type="button" class="btn ghost" title="Download this template to import into another org" onclick={handleExport}>Export</button>
+                </template>
             </div>
 
             <template lwc:if={hasTemplate}>
@@ -41,6 +45,10 @@
                 </div>
             </template>
         </header>
+
+        <template lwc:if={showImport}>
+            <c-doc-builder-import onclose={handleCloseImport} onimported={handleImported}></c-doc-builder-import>
+        </template>
 
         <template lwc:if={showNew}>
             <div class="card new-panel">
@@ -106,6 +114,26 @@
 
                     <!-- Page -->
                     <main class="db-stage">
+                        <!-- Dock: template-wide settings, kept at the top of the page while scrolling -->
+                        <div class="db-dock" role="group" aria-label="Template settings">
+                            <button type="button" class="dock-btn" data-panel="page" onclick={handleDock}>{pageLabel}</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" data-panel="headerfooter" onclick={handleDock}>Header, footer, watermark</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" data-panel="calc" onclick={handleDock}>Calculated values</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" data-panel="conditions" onclick={handleDock}>Conditions</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" data-panel="signers" onclick={handleDock}>Signers</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" data-panel="messages" onclick={handleDock}>Emails</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" data-panel="template" onclick={handleDock}>Name and languages</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" data-panel="versions" onclick={handleDock}>Versions</button>
+                            <span class="dock-sep" aria-hidden="true"></span>
+                            <button type="button" class="dock-btn" onclick={handleCheck}><span class="dot" aria-hidden="true"></span>Check fields</button>
+                        </div>
                         <div class="page" style={pageStyle}>
                             <template lwc:if={hasHeader}>
                                 <div class="page-edge page-header">
@@ -220,7 +248,7 @@
                                         </template>
                                         <div class="grid-head">
                                             <template for:each={b.columns} for:item="c">
-                                                <div key={c.key} class={c.cls}>{c.header}</div>
+                                                <div key={c.key} class={c.cls} title={c.showTitle}>{c.header}<template lwc:if={c.conditional}><span class="col-cond" aria-label={c.showTitle}>if</span></template></div>
                                             </template>
                                         </div>
                                         <div class="grid-row">
@@ -279,25 +307,6 @@
                                     <template lwc:if={footer.pageNumbers}><span>Page 1 of 1</span></template>
                                 </div>
                             </template>
-                        </div>
-
-                        <!-- Dock -->
-                        <div class="db-dock" role="group" aria-label="Template settings">
-                            <button type="button" class="dock-btn" data-panel="page" onclick={handleDock}>{pageLabel}</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" data-panel="headerfooter" onclick={handleDock}>Header, footer, watermark</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" data-panel="calc" onclick={handleDock}>Calculated values</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" data-panel="conditions" onclick={handleDock}>Conditions</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" data-panel="signers" onclick={handleDock}>Signers</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" data-panel="messages" onclick={handleDock}>Emails</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" data-panel="template" onclick={handleDock}>Name and languages</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" onclick={handleCheck}><span class="dot" aria-hidden="true"></span>Check fields</button>
                         </div>
                     </main>
 
@@ -401,6 +410,20 @@
                                                 <lightning-combobox label="Align" options={alignOptions} value={c.align} data-list="columns" data-index={c.index} data-prop="align" onchange={handleRow}></lightning-combobox>
                                                 <lightning-combobox label="Format" options={formatOptions} value={c.format} data-list="columns" data-index={c.index} data-prop="format" onchange={handleRow}></lightning-combobox>
                                             </div>
+                                            <lightning-combobox
+                                                label="Show this column"
+                                                options={columnShowOptions}
+                                                value={c.show}
+                                                data-list="columns"
+                                                data-index={c.index}
+                                                data-prop="show"
+                                                field-level-help="'Only when some row has a value' leaves the column out when every row in the table is blank or zero, for example a Discount column when nothing is discounted."
+                                                onchange={handleRow}
+                                            ></lightning-combobox>
+                                            <template lwc:if={c.showRule}>
+                                                <p class="hint">Show the column only if</p>
+                                                <c-doc-builder-rule rule={c.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="column" data-index={c.index} onrulechange={handleRule}></c-doc-builder-rule>
+                                            </template>
                                         </div>
                                     </template>
                                     <button type="button" class="link-btn" data-tab="fields" onclick={handlePanelTab}>Add columns from the field list</button>
@@ -607,6 +630,27 @@
                                     </template>
                                 </template>
 
+                                <template lwc:if={isPanelVersions}>
+                                    <p class="hint">Every saved version is kept. Put an earlier one live to undo a change straight away, or copy it into the draft to change it before activating.</p>
+                                    <template for:each={versionRows} for:item="v">
+                                        <div key={v.id} class="row-card">
+                                            <div class="row-line">
+                                                <span class="provider-name">{v.title}</span>
+                                                <span class={v.stateCls}>{v.state}</span>
+                                            </div>
+                                            <p class="hint">{v.detail}</p>
+                                            <div class="row-line ver-actions">
+                                                <template lwc:if={v.canMakeLive}>
+                                                    <button type="button" class="btn small" data-id={v.id} data-number={v.number} onclick={handleMakeLive}>Put live</button>
+                                                </template>
+                                                <template lwc:if={v.canCopy}>
+                                                    <button type="button" class="btn small" data-id={v.id} data-number={v.number} onclick={handleCopyToDraft}>Edit a copy</button>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </template>
+
                                 <template lwc:if={isPanelMessages}>
                                     <p class="hint">The wording used when this document is emailed or sent for signature. Click a box, then pick fields from the Fields tab; conditions such as {ifExample} work too. Senders can still change it before sending.</p>
                                     <h3>Emailing the PDF</h3>
@@ -772,10 +816,10 @@
                     <div class="card empty"><p>Pick a record to see exactly what would be generated for it. The preview uses your unsaved changes and saves nothing.</p></div>
                 </template>
                 <div class="db-stage">
+                    <div class="db-dock static"><span class="dock-text">{pageLabel}. Page breaks and repeated headers appear in the PDF itself.</span></div>
                     <div class="page preview-page" style={pageStyle}>
                         <div class="preview-body" lwc:dom="manual"></div>
                     </div>
-                    <div class="db-dock static"><span class="dock-text">{pageLabel}. Page breaks and repeated headers appear in the PDF itself.</span></div>
                 </div>
             </template>
 

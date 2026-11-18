@@ -352,11 +352,56 @@ public with sharing class DocBuilderRenderer {
         return '';
     }
 
+    /**
+     * The columns that print. Each column's "show" setting decides:
+     *   always (default) | filled: only when at least one shown row has a value (blank and zero count as empty)
+     *   | rule: only when its showIf rule on the record is met.
+     */
+    @TestVisible
+    static List<Object> shownColumns(DocBuilderContext ctx, List<Object> columns, List<SObject> rows, String blockId) {
+        List<Object> shown = new List<Object>();
+        Integer index = 0;
+        for (Object c : columns) {
+            Map<String, Object> column = (Map<String, Object>) c;
+            String show = column.get('show') == null ? 'always' : String.valueOf(column.get('show'));
+            Boolean keep = true;
+            if (show == 'rule') {
+                keep = ctx.passes(column.get('showIf'), ctx.record, column.get('showIf') == null ? null : blockId + '|col' + index);
+            } else if (show == 'filled') {
+                keep = anyValue(ctx, rows, (String) column.get('field'));
+            }
+            if (keep) {
+                shown.add(column);
+            }
+            index++;
+        }
+        return shown;
+    }
+
+    static Boolean anyValue(DocBuilderContext ctx, List<SObject> rows, String field) {
+        for (SObject row : rows) {
+            Object value = ctx.resolve(row, field);
+            if (value == null || String.isBlank(String.valueOf(value))) {
+                continue;
+            }
+            if ((value instanceof Decimal || value instanceof Double || value instanceof Integer || value instanceof Long) && Decimal.valueOf(String.valueOf(value)) == 0) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
     static String table(DocBuilderContext ctx, Map<String, Object> blk) {
-        List<Object> columns = DocBuilderContext.asList(blk.get('columns'));
         List<SObject> rows = ctx.rowsFor((String) blk.get('source'), blk.get('rowFilter'));
         rows = ctx.sorted(rows, (String) blk.get('orderBy'), 'DESC'.equalsIgnoreCase((String) blk.get('orderDirection')));
         if (rows.isEmpty() && blk.get('hideWhenEmpty') == true) {
+            return '';
+        }
+        List<Object> allColumns = DocBuilderContext.asList(blk.get('columns'));
+        List<Object> columns = shownColumns(ctx, allColumns, rows, (String) blk.get('id'));
+        if (columns.isEmpty() && !allColumns.isEmpty()) {
+            // Every column is hidden for this record, so there is nothing to print.
             return '';
         }
 

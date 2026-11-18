@@ -167,6 +167,8 @@ public with sharing class DocBuilderContext {
                 child(rel);
                 for (Object c : asList(blk.get('columns'))) {
                     addField(child(rel), (String) ((Map<String, Object>) c).get('field'));
+                    // A column can be shown only when a rule on the record is met.
+                    addRule(((Map<String, Object>) c).get('showIf'), null);
                 }
                 addRule(blk.get('rowFilter'), rel);
                 // Each table sorts its own rows (see sorted), so several tables can show one list in different orders.

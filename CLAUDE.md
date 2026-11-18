@@ -102,6 +102,24 @@ Packaged Dropbox Sign credential:
   `+ - * /`, comparisons (= == != <> < <= > >=, giving 1/0) and the functions ROUND(x[,n]), ABS, CEILING,
   FLOOR, MIN, MAX, IF(c,a,b), AND, OR, NOT. A formula can only use calculations defined above it.
   Nesting is capped at 40 (`MAX_NESTING`).
+- Table columns have `show`: `always` (default), `filled` (left out when every shown row is blank or zero) or
+  `rule` (with `showIf`, a RULE on the record). See `DocBuilderRenderer.shownColumns`. Total rows span only the
+  printed columns. A table whose columns are all hidden isn't printed.
+- Versions: `DocBuilderDesignerController.listVersions`, `makeVersionLive` (rollback: archives the current live
+  version and re-checks fields first; the draft is untouched) and `copyVersionToDraft` (replaces or creates the draft,
+  copying translations). They're in the designer's Versions panel. These methods use `userError()` so
+  `AuraHandledException` messages can be asserted in tests (normally they read "Script-thrown exception").
+- Import and export (designer top bar):
+  - `docBuilderImport` (wizard) uses `docBuilderImportParse` (browser-side .docx/HTML/text/export reader; unzips
+    with `DecompressionStream('deflate-raw')`, so no library) and `docBuilderFieldPicker` (reusable two-level
+    field picker).
+  - Merge fields become placeholders `\u0002n\u0003` pointing at `model.tokens[n]` until they're mapped.
+  - Server side: `DocBuilderImport` matches names and labels by describe only, and
+    `DocBuilderDesignerController.importTemplate` creates a draft.
+  - Export is a `.docbuilder.json` file with `format: 'docbuilder-template'`.
+  - No automated test covers the Word XML walk or the HTML path, since they need the browser's DOMParser.
+    Check them in a browser with real files after changing them. A one-off Node check (Nov 2026) covered the zip
+    reader, merge-field detection, text and export parsing.
 - Table totals: when a total's calculation sums the **same list** the table shows, it is recomputed over the
   rows the table actually shows, after its row filter (`DocBuilderContext.formatTableTotal`). Formulas and
   totals over other lists print their document-wide value.

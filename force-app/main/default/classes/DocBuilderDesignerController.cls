@@ -91,6 +91,49 @@ public with sharing class DocBuilderDesignerController {
         }
     }
 
+    /**
+     * Creates a template from an imported design (Word, HTML, text or a DocBuilder export). It starts as a draft,
+     * so nobody can generate from it until it has been checked and activated in the designer.
+     */
+    @AuraEnabled
+    public static TemplateState importTemplate(String name, String baseObject, String fileNamePattern, String bodyJson) {
+        try {
+            if (String.isBlank(name) || String.isBlank(baseObject)) {
+                throw new DocBuilder.DocBuilderException('A name and an object are required.');
+            }
+            if (String.isBlank(bodyJson) || bodyJson.length() > 131072) {
+                throw new DocBuilder.DocBuilderException('The imported template is empty or too large. Split it into smaller templates.');
+            }
+            Object parsed = JSON.deserializeUntyped(bodyJson);
+            if (!(parsed instanceof Map<String, Object>) || !(((Map<String, Object>) parsed).get('blocks') instanceof List<Object>)) {
+                throw new DocBuilder.DocBuilderException('The imported content is not a DocBuilder template.');
+            }
+            Schema.DescribeSObjectResult described = describe(baseObject);
+            DocTemplate__c template = new DocTemplate__c(
+                Name = name.trim().left(80),
+                Base_Object__c = described.getName(),
+                File_Name_Pattern__c = String.isBlank(fileNamePattern) ? null : fileNamePattern.left(255),
+                Status__c = 'Draft',
+                Default_Language__c = 'en'
+            );
+            insert as user template;
+            insert as user new DocTemplateVersion__c(Template__c = template.Id, Version_Number__c = 1, Status__c = 'Draft', Body_JSON__c = bodyJson);
+            return loadTemplate(template.Id);
+        } catch (Exception e) {
+            throw userError(e);
+        }
+    }
+
+    /** Suggested Salesforce field for each merge field found in an imported template (see DocBuilderImport). */
+    @AuraEnabled
+    public static Map<String, String> suggestFields(String objectName, List<String> tokens, String listName) {
+        try {
+            return new DocBuilderImport().suggest(objectName, tokens, listName);
+        } catch (Exception e) {
+            throw userError(e);
+        }
+    }
+
     /** Loads the draft version if there is one, otherwise the active version. */
     @AuraEnabled
     public static TemplateState loadTemplate(Id templateId) {
@@ -192,6 +235,144 @@ public with sharing class DocBuilderDesignerController {
             return loadTemplate(templateId);
         } catch (Exception e) {
             throw new AuraHandledException(e.getMessage());
+        }
+    }
+
+    public class VersionInfo {
+        @AuraEnabled
+        public Id id;
+        @AuraEnabled
+        public Decimal versionNumber;
+        @AuraEnabled
+        public String status;
+        @AuraEnabled
+        public Datetime activatedOn;
+        @AuraEnabled
+        public Datetime lastModified;
+        @AuraEnabled
+        public String lastModifiedBy;
+    }
+
+    /** Every version of a template, newest first. */
+    @AuraEnabled
+    public static List<VersionInfo> listVersions(Id templateId) {
+        List<VersionInfo> versions = new List<VersionInfo>();
+        for (DocTemplateVersion__c v : [
+            SELECT Id, Version_Number__c, Status__c, Activated_On__c, LastModifiedDate, LastModifiedBy.Name
+            FROM DocTemplateVersion__c
+            WHERE Template__c = :templateId
+            WITH USER_MODE
+            ORDER BY Version_Number__c DESC
+            LIMIT 200
+        ]) {
+            VersionInfo info = new VersionInfo();
+            info.id = v.Id;
+            info.versionNumber = v.Version_Number__c;
+            info.status = v.Status__c;
+            info.activatedOn = v.Activated_On__c;
+            info.lastModified = v.LastModifiedDate;
+            info.lastModifiedBy = v.LastModifiedBy?.Name;
+            versions.add(info);
+        }
+        return versions;
+    }
+
+    /** An error for the designer whose message also survives in tests (AuraHandledException hides it otherwise). */
+    static AuraHandledException userError(Exception e) {
+        AuraHandledException error = new AuraHandledException(e.getMessage());
+        error.setMessage(e.getMessage());
+        return error;
+    }
+
+    static DocTemplateVersion__c versionOf(Id templateId, Id versionId) {
+        List<DocTemplateVersion__c> found = [
+            SELECT Id, Version_Number__c, Status__c, Body_JSON__c
+            FROM DocTemplateVersion__c
+            WHERE Id = :versionId AND Template__c = :templateId
+            WITH USER_MODE
+        ];
+        if (found.isEmpty()) {
+            throw new DocBuilder.DocBuilderException('That version is not part of this template.');
+        }
+        return found[0];
+    }
+
+    /**
+     * Puts an earlier version back in use straight away, for example to undo a change that went live by mistake.
+     * The version that was live is archived (never deleted), and any draft is left as it is.
+     */
+    @AuraEnabled
+    public static TemplateState makeVersionLive(Id templateId, Id versionId) {
+        try {
+            DocTemplate__c template = [SELECT Id, Base_Object__c, Active_Version__c FROM DocTemplate__c WHERE Id = :templateId WITH USER_MODE FOR UPDATE];
+            DocTemplateVersion__c chosen = versionOf(templateId, versionId);
+            if (chosen.Status__c == 'Draft') {
+                throw new DocBuilder.DocBuilderException('Version ' + chosen.Version_Number__c + ' is the draft. Use Activate to put it live.');
+            }
+            if (chosen.Id == template.Active_Version__c) {
+                throw new DocBuilder.DocBuilderException('Version ' + chosen.Version_Number__c + ' is already live.');
+            }
+            // Fields can be removed from the org after a version was archived, so check it still works before it goes live.
+            String problem = check(chosen.Body_JSON__c, template.Base_Object__c);
+            if (problem != null) {
+                throw new DocBuilder.DocBuilderException('Version ' + chosen.Version_Number__c + ' cannot be put live. ' + problem);
+            }
+            List<DocTemplateVersion__c> changes = new List<DocTemplateVersion__c>();
+            if (template.Active_Version__c != null) {
+                changes.add(new DocTemplateVersion__c(Id = template.Active_Version__c, Status__c = 'Archived'));
+            }
+            changes.add(new DocTemplateVersion__c(Id = chosen.Id, Status__c = 'Active', Activated_On__c = System.now()));
+            update as user changes;
+            template.Active_Version__c = chosen.Id;
+            template.Status__c = 'Active';
+            update as user template;
+            return loadTemplate(templateId);
+        } catch (Exception e) {
+            throw userError(e);
+        }
+    }
+
+    /**
+     * Copies an earlier version, with its translations, into the draft so it can be changed and activated later.
+     * Replaces the current draft's content if there is one; otherwise starts a new draft version.
+     */
+    @AuraEnabled
+    public static TemplateState copyVersionToDraft(Id templateId, Id versionId) {
+        try {
+            DocTemplateVersion__c source = versionOf(templateId, versionId);
+            if (source.Status__c == 'Draft') {
+                throw new DocBuilder.DocBuilderException('Version ' + source.Version_Number__c + ' is already the draft.');
+            }
+            DocTemplateVersion__c draft = draftOf(templateId);
+            if (draft != null) {
+                draft.Body_JSON__c = source.Body_JSON__c;
+                update as user draft;
+                delete as user [SELECT Id FROM DocTranslation__c WHERE Template_Version__c = :draft.Id WITH USER_MODE];
+            } else {
+                AggregateResult latest = [SELECT MAX(Version_Number__c) maxVersion FROM DocTemplateVersion__c WHERE Template__c = :templateId WITH USER_MODE];
+                draft = new DocTemplateVersion__c(
+                    Template__c = templateId,
+                    Version_Number__c = (Decimal) latest.get('maxVersion') + 1,
+                    Status__c = 'Draft',
+                    Body_JSON__c = source.Body_JSON__c
+                );
+                insert as user draft;
+            }
+            List<DocTranslation__c> copies = new List<DocTranslation__c>();
+            for (DocTranslation__c t : [
+                SELECT Language__c, Block_Id__c, Part__c, Source_Text__c, Translated_Text__c
+                FROM DocTranslation__c
+                WHERE Template_Version__c = :source.Id
+                WITH USER_MODE
+            ]) {
+                DocTranslation__c copy = t.clone(false, true);
+                copy.Template_Version__c = draft.Id;
+                copies.add(copy);
+            }
+            insert as user copies;
+            return loadTemplate(templateId);
+        } catch (Exception e) {
+            throw userError(e);
         }
     }
 
