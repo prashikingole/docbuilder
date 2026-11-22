@@ -96,7 +96,20 @@ private class DocBuilderSignTest {
         for (DocBuilderSign.ProviderOption option : options.providers) {
             hasTestProvider = hasTestProvider || option.name == 'TestProvider';
         }
-        System.assert(hasTestProvider, 'The test provider ships active');
+        System.assert(hasTestProvider, 'The test provider is offered (in tests it always counts as switched on)');
+
+        // A provider that is switched off is neither offered nor usable for new requests.
+        DocBuilderSign.testInactive.add('TestProvider');
+        for (DocBuilderSign.ProviderOption option : DocBuilderController.getSignOptions(templateId, opp.Id).providers) {
+            System.assertNotEquals('TestProvider', option.name);
+        }
+        try {
+            DocBuilderController.sendForSignature(new List<Id>{ templateId }, opp.Id, null, 'TestProvider', null, null, 'x');
+            System.assert(false, 'A switched-off provider must be refused');
+        } catch (Exception e) {
+            System.assert(true);
+        }
+        DocBuilderSign.testInactive.clear();
         System.assertEquals(2, options.signers.size());
         System.assertEquals('Harbor Sample Co', options.signers[0].name);
         System.assertEquals('Customer', options.signers[0].role);

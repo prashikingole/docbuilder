@@ -76,6 +76,7 @@ a { color: var(--accent-ink); }
       <li><a href="#schema">Template JSON</a></li>
       <li><a href="#apex">Apex API</a></li>
       <li><a href="#flow">Flow actions</a></li>
+      <li><a href="#datasources">Data sources and extensions</a></li>
       <li><a href="#providers">Custom e-signature providers</a></li>
       <li><a href="#webhooks">Notifications</a></li>
       <li><a href="#ui">Components</a></li>
@@ -110,6 +111,10 @@ a { color: var(--accent-ink); }
           <tr><td><code>DocBuilderSignWebhookEndpoint</code>, <code>DocBuilderSignNotices</code></td><td>Public notification address and its platform event handler.</td></tr>
           <tr><td><code>DocBuilderController</code>, <code>DocBuilderDesignerController</code></td><td>Server side of the Generate dialog and the Template Designer.</td></tr>
           <tr><td><code>DocBuilderFlowAction</code>, <code>DocBuilderSignFlowAction</code></td><td>Invocable actions.</td></tr>
+          <tr><td><code>DocBuilderContentProvider</code>, <code>DocBuilderVariableProvider</code>, <code>DocBuilderConditionProvider</code>, <code>DocBuilderContentRequest</code></td><td>Extension points: content for Custom blocks, Apex variables (many values per class), single yes/no checks, and the request each receives. See <a href="#datasources">Data sources and extensions</a>.</td></tr>
+          <tr><td><code>DocBuilderImport</code></td><td>Matches merge fields of imported templates to Salesforce fields, by describe only.</td></tr>
+          <tr><td><code>DocBuilderImportSources</code></td><td>Templates in installed tools for "Import › From this org": CPQ (rebuilt as HTML from <code>SBQQ__TemplateSection__c</code>, <code>SBQQ__TemplateContent__c</code>, <code>SBQQ__LineColumn__c</code>, <code>SBQQ__QuoteTerm__c</code>), and Conga, DocuSign Gen and OmniStudio (the latest attached .docx/.html file, via ContentDocumentLink, <code>DocumentTemplateContentDoc</code> or Attachment, up to 3 MB). Objects and fields are found by describe, so tools that aren't installed are skipped. Also builds the standard-quote layout (<code>standardQuoteBody</code>).</td></tr>
+          <tr><td><code>DocBuilderInstall</code>, <code>DocBuilderSamples</code></td><td>Post-install script (schedules the status check) and the sample template installer.</td></tr>
         </tbody>
       </table></div>
     </section>
@@ -145,9 +150,14 @@ a { color: var(--accent-ink); }
     "margin": "narrow | normal | wide",
     "header": { "text": "…", "logoId": "&lt;ContentVersion Id&gt;", "logoWidth": 120 },
     "footer": { "text": "…", "pageNumbers": true },
-    "watermark": { "text": "CONFIDENTIAL", "showIf": RULE }
+    "watermark": { "text": "CONFIDENTIAL", "showIf": RULE,
+                   "direction": "across | diagonal", "size": "fit | large | medium | small",
+                   "shade": "light | medium | dark",
+                   "imageId": "&lt;ContentVersion Id&gt;", "draftImageId": "…", "imageKey": "…" }
   },
   "blocks": [ BLOCK, … ],
+  "dataSources": [ DATA SOURCE, … ],      // see Data sources and extensions
+  "apexChecks": [ APEX VARIABLE, … ],     // see Data sources and extensions
   "calculations": [
     { "name": "Subtotal", "type": "count | sum | avg | min | max", "source": "QuoteLineItems",
       "field": "TotalPrice", "filter": RULE, "format": "currency" },
@@ -161,6 +171,7 @@ a { color: var(--accent-ink); }
   ],
   "messages": { "emailSubject": "…", "emailBody": "…", "signSubject": "…", "signMessage": "…" }
 }</code></pre>
+      <p>Diagonal watermarks: the PDF engine can't rotate text, so the designer draws the text (and DRAFT) at 45° into PNGs when the template is saved. It stores their ContentVersion Ids in <code>imageId</code> and <code>draftImageId</code>, with <code>imageKey</code> recording the text and shade they were drawn from. A diagonal watermark whose text has fields prints across the page.</p>
       <h3>Blocks</h3>
       <p>Every block has <code>id</code>, <code>type</code>, and optionally <code>showIf</code> (RULE), <code>elseText</code>, <code>span</code> (width in percent, 10 to 100), <code>beside</code> (true joins the row above) and <code>align</code> (center, right).</p>
       <div class="table-wrap"><table>
@@ -168,11 +179,12 @@ a { color: var(--accent-ink); }
         <tbody>
           <tr><td><code>heading</code></td><td><code>text</code>, <code>level</code> 1–3</td></tr>
           <tr><td><code>text</code></td><td><code>text</code>, <code>rich</code> (true for HTML text)</td></tr>
-          <tr><td><code>table</code></td><td><code>source</code>, <code>columns</code> [{header, field, align, format, show, showIf}] (<code>show</code>: <code>always</code> (default), <code>filled</code> (printed only when some shown row is not blank or zero), or <code>rule</code> (printed only when the RULE in <code>showIf</code> passes on the record)), <code>rowFilter</code>, <code>orderBy</code>, <code>orderDirection</code>, <code>totals</code> [{label, calc, format}], <code>hideWhenEmpty</code></td></tr>
+          <tr><td><code>table</code></td><td><code>source</code> (a relationship, <code>Account.Contacts</code>, or <code>ds:Name</code>), <code>groupBy</code> (a field of the row; adds a <code>tr.grp</code> heading per group), <code>groupTotals</code> (true repeats the summary rows per group as <code>tr.tot.sub</code>), <code>columns</code> [{header, field, align, format, show, showIf}] (<code>show</code>: <code>always</code> (default), <code>filled</code> (printed only when some shown row is not blank or zero), or <code>rule</code> (printed only when the RULE in <code>showIf</code> passes on the record)), <code>rowFilter</code>, <code>orderBy</code>, <code>orderDirection</code>, <code>totals</code> [{label, calc, format}], <code>hideWhenEmpty</code></td></tr>
           <tr><td><code>image</code></td><td><code>contentVersionId</code>, <code>width</code> (pixels)</td></tr>
           <tr><td><code>terms</code></td><td><code>title</code>, <code>items</code> [{id, text, showIf}], <code>clauseCategory</code></td></tr>
           <tr><td><code>signature</code></td><td><code>showDate</code>, <code>showName</code></td></tr>
           <tr><td><code>pagebreak</code></td><td>none</td></tr>
+          <tr><td><code>custom</code></td><td><code>source</code> (<code>apex</code> or <code>visualforce</code>), <code>className</code> and <code>settings</code> (Apex), or <code>page</code> (Visualforce page name, opened with <code>?id=</code> the record). The output passes through <code>DocBuilderRenderer.cleanCode</code>, which removes scripts, frames, forms, event attributes and script URLs.</td></tr>
         </tbody>
       </table></div>
       <h3>Rules</h3>
@@ -181,7 +193,14 @@ a { color: var(--accent-ink); }
   "conditions": [ { "field": "Amount", "op": "gt", "value": "10000" }, … ]
 }
 op: eq, ne, gt, ge, lt, le, contains, blank, notBlank</code></pre>
-      <p>A condition's <code>field</code> can be a path on the record, a related record (<code>Account.Industry</code>), or <code>calc:Name</code>. In a table's <code>rowFilter</code> or a calculation's <code>filter</code>, paths are on the row.</p>
+      <p>A condition's <code>field</code> can be:</p>
+      <ul>
+        <li>a path on the record, or on a related record (<code>Account.Industry</code>);</li>
+        <li><code>calc:Name</code>;</li>
+        <li><code>ds:Name.Field</code>, which reads the first row of a data source;</li>
+        <li><code>apex:Name</code>, an Apex variable.</li>
+      </ul>
+      <p>Values compare by type: numbers numerically, dates as dates (<code>YYYY-MM-DD</code>), and text case-insensitively. In a table's <code>rowFilter</code> or a calculation's <code>filter</code>, paths are on the row.</p>
       <h3>Formulas</h3>
       <p>Grammar: numbers, field paths, <code>calc:Name</code> (defined earlier in the list), <code>+ - * /</code>, brackets, comparisons <code>= == != &lt;&gt; &lt; &lt;= &gt; &gt;=</code> (1 when true, 0 when false), and the functions ROUND(x[, places]), ABS, CEILING, FLOOR, MIN(…), MAX(…), IF(test, then, else), AND(…), OR(…), NOT(x). Empty fields count as 0; division by zero gives 0.</p>
       <h3>Table totals</h3>
@@ -189,7 +208,7 @@ op: eq, ne, gt, ge, lt, le, contains, blank, notBlank</code></pre>
       <h3>Conditions the designer creates</h3>
       <p><code>conditions</code> entries with <code>"auto": true</code> belong to one conditional part of a text. The designer names them PartN and drops them when no text refers to them; the engine treats them like any named condition.</p>
       <h3>Text syntax</h3>
-      <p>Tokens: <code>{{Path}}</code>, <code>{{Path|format}}</code>, <code>{{calc:Name}}</code>. Sections: <code>{{#if Path}}</code>, <code>{{#if not Path}}</code>, <code>{{#if cond:Name}}</code>, <code>{{else}}</code>, <code>{{/if}}</code>; they nest. A leading object name equal to the template's base object is ignored, so <code>{{Quote.Name}}</code> on a Quote template means <code>{{Name}}</code>.</p>
+      <p>Tokens: <code>{{Path}}</code>, <code>{{Path|format}}</code>, <code>{{calc:Name}}</code>, <code>{{ds:Name.Field}}</code> (the data source's first row) and <code>{{apex:Name}}</code> (yes/no prints Yes/No). Sections: <code>{{#if Path}}</code>, <code>{{#if not Path}}</code>, <code>{{#if cond:Name}}</code>, <code>{{#if ds:Name.Field}}</code>, <code>{{#if apex:Name}}</code> (true for yes, a non-zero number or non-empty text), <code>{{else}}</code>, <code>{{/if}}</code>; they nest. A leading object name equal to the template's base object is ignored, so <code>{{Quote.Name}}</code> on a Quote template means <code>{{Name}}</code>.</p>
     </section>
 
     <section id="apex">
@@ -236,6 +255,103 @@ String msg = DocBuilderSign.testConnection('DropboxSign');</code></pre>
           <tr><td>Send Document for Signature</td><td>Template Name, Record ID, Signature Provider, Language, Subject, Message, Signer Emails</td><td>Succeeded, Signature Request ID, Error Message</td></tr>
         </tbody>
       </table></div>
+    </section>
+
+    <section id="datasources">
+      <h2>Data sources and extensions</h2>
+      <p>Three ways to go beyond the record and its lists: data sources (extra queries built from pick-lists, no code), Apex variables (values from code, used in rules and text) and Custom content blocks (HTML from Apex or a Visualforce page).</p>
+      <h3>Data sources in the template JSON</h3>
+      <pre><code>"dataSources": [
+  {
+    "name": "Contracts",                 // used as ds:Contracts; letters, digits, underscores
+    "object": "Contract",
+    "match": "all",                      // all | any
+    "filters": [
+      { "field": "AccountId", "op": "eq", "from": "record", "recordField": "AccountId" },
+      { "field": "Status", "op": "eq", "from": "value", "value": "Activated" },
+      { "field": "Id", "op": "in", "from": "list", "list": "ds:Other", "listField": "ContractId" }
+    ],
+    "orderBy": "StartDate", "orderDirection": "DESC", "limit": 50
+  }
+]</code></pre>
+      <ul>
+        <li><code>op</code>: eq, ne, gt, ge, lt, le, contains, blank, notBlank, and for <code>from: "list"</code> in or notIn. A typed <code>value</code> is converted to the field's type (dates as <code>YYYY-MM-DD</code>).</li>
+        <li>Every value is a bind variable in a <code>USER_MODE</code> query. The object, fields and sort field are checked against the schema and the safe-name pattern.</li>
+        <li>A source is a list keyed <code>ds:Name</code> wherever lists are used: table <code>source</code>, calculation <code>source</code>, signer <code>source</code>. <code>{{ds:Name.Field}}</code> (and <code>{{#if ds:Name.Field}}</code>, and rule fields) read its first row.</li>
+        <li>Sources load in order after the record and its lists, so a filter can use lists and earlier sources. Unused sources aren't queried. Maximum 10 per template, 500 rows each. Rows appear in the audit snapshot under <code>ds:Name</code>.</li>
+      </ul>
+      <h3>Apex content for a Custom block</h3>
+      <pre><code>global with sharing class AcmeWarrantyTable implements DocBuilderContentProvider {
+    global String render(DocBuilderContentRequest request) {
+        // request.recordId, request.objectName, request.settings (the block's Settings text), request.language
+        List&lt;Asset&gt; assets = [SELECT Name, UsageEndDate FROM Asset
+                              WHERE AccountId IN (SELECT AccountId FROM Opportunity WHERE Id = :request.recordId)
+                              WITH USER_MODE];
+        String html = '&lt;table class="t"&gt;&lt;tr&gt;&lt;th&gt;Asset&lt;/th&gt;&lt;th&gt;Warranty ends&lt;/th&gt;&lt;/tr&gt;';
+        for (Asset a : assets) {
+            html += '&lt;tr&gt;&lt;td&gt;' + a.Name.escapeHtml4() + '&lt;/td&gt;&lt;td&gt;' + a.UsageEndDate + '&lt;/td&gt;&lt;/tr&gt;';
+        }
+        return html + '&lt;/table&gt;';
+    }
+}</code></pre>
+      <ul>
+        <li>Return HTML the PDF engine supports (CSS 2.1; the document's <code>table.t</code> style is available). Escape every data value.</li>
+        <li>The class runs as the user generating the document, once per document (bulk included). Use <code>with sharing</code> and <code>USER_MODE</code>.</li>
+        <li>Exceptions stop generation with the message "The Apex class … failed: …".</li>
+      </ul>
+      <h3>Apex variables (many values from one class)</h3>
+      <pre><code>global with sharing class AccountFacts implements DocBuilderVariableProvider {
+    global Map&lt;String, String&gt; describeVariables() {          // name -&gt; Boolean | Number | Text | Date
+        return new Map&lt;String, String&gt;{ 'OpenCaseCount' =&gt; 'Number', 'HasOpenCases' =&gt; 'Boolean', 'Tier' =&gt; 'Text' };
+    }
+    global Map&lt;String, Object&gt; getValues(DocBuilderContentRequest request) {
+        Integer open = [SELECT COUNT() FROM Case WHERE AccountId IN
+                        (SELECT AccountId FROM Opportunity WHERE Id = :request.recordId)
+                        AND IsClosed = false WITH USER_MODE];
+        return new Map&lt;String, Object&gt;{ 'OpenCaseCount' =&gt; open, 'HasOpenCases' =&gt; open &gt; 0, 'Tier' =&gt; 'Gold' };
+    }
+}</code></pre>
+      <p>The template registers one entry per value it uses: <code>"apexChecks": [{ "name": "OpenCases", "className": "AccountFacts", "variable": "OpenCaseCount", "type": "Number", "settings": "" }]</code>.</p>
+      <ul>
+        <li><code>getValues</code> runs once per class and settings text per document; names are matched case-insensitively.</li>
+        <li>Values compare by type in rules (numbers numerically, dates as dates) and print with the document's number and date formats. Yes/no prints as Yes/No.</li>
+        <li>Adding a value only means adding it to both maps.</li>
+        <li><code>DocBuilderDesignerController.describeApexClass</code> lists the values for the designer, and <span class="ui">Check fields</span> reports a variable that names a value the class doesn't offer.</li>
+      </ul>
+      <h3>Single yes/no classes (earlier interface, still supported)</h3>
+      <p>A class implementing <code>DocBuilderConditionProvider</code> answers one yes/no. Prefer <code>DocBuilderVariableProvider</code> for new work: one class can then serve any number of values.</p>
+      <pre><code>global with sharing class HasOpenCases implements DocBuilderConditionProvider {
+    global Boolean evaluate(DocBuilderContentRequest request) {
+        // request.recordId, objectName, settings (the check's Settings text), language
+        return [SELECT COUNT() FROM Case WHERE AccountId IN
+                (SELECT AccountId FROM Opportunity WHERE Id = :request.recordId)
+                AND IsClosed = false WITH USER_MODE] &gt; 0;
+    }
+}</code></pre>
+      <p>The check is registered in the template JSON as <code>"apexChecks": [{ "name": "OpenCases", "className": "HasOpenCases", "settings": "" }]</code>.</p>
+      <ul>
+        <li>In rules it's referenced as the condition field <code>apex:OpenCases</code>, with <code>op</code> eq and <code>value</code> true or false.</li>
+        <li>In text it's <code>{{#if apex:OpenCases}}</code>.</li>
+        <li>It's evaluated lazily, once per document, and the result is recorded in the snapshot's rule log.</li>
+        <li><span class="ui">Check fields</span> verifies names, classes and that every <code>apex:Name</code> used is defined.</li>
+        <li>An exception in either kind of class stops generation with "The Apex variable … failed: …".</li>
+      </ul>
+      <h3>Samples</h3>
+      <p>Working examples are in <code>samples/</code>, which is not part of the package:</p>
+      <ul>
+        <li><code>DocBuilderSampleProductSummary</code>: Custom content, Apex.</li>
+        <li><code>DocBuilderSampleAccountVariables</code>: seven Apex variables from one class.</li>
+        <li><code>DocBuilderSampleOpenCasesCheck</code>: a single yes/no.</li>
+        <li><code>DocBuilderSampleAccountCard</code>: a Visualforce page with its controller.</li>
+      </ul>
+      <p>Their tests are in <code>DocBuilderSampleContentTest</code>. Deploy them with <code>--source-dir samples</code>.</p>
+      <h3>Visualforce content</h3>
+      <p><code>PageReference.getContent()</code> is called for <code>/apex/Page?id=recordId</code>, and only the page's <code>&lt;body&gt;</code> is kept. Salesforce treats this like a callout:</p>
+      <ul>
+        <li>It's not possible after uncommitted DML in the same transaction. DocBuilder renders before it saves.</li>
+        <li>It's not available in Apex tests, where the block prints a placeholder.</li>
+      </ul>
+      <p>LWC and Aura can't be rendered server-side, so they can't be included in PDFs.</p>
     </section>
 
     <section id="providers">
@@ -299,7 +415,20 @@ String msg = DocBuilderSign.testConnection('DropboxSign');</code></pre>
           <tr><td><code>docBuilderGenerateAction</code></td><td>Headless record action; opens <code>docBuilderGenerateModal</code> (LightningModal, size large).</td></tr>
           <tr><td><code>docBuilderGenerate</code></td><td>The Generate dialog's content; fires <code>close</code> when done.</td></tr>
           <tr><td><code>docBuilderSignSend</code>, <code>docBuilderSignTracker</code></td><td>Guided steps and signing desk; signature progress (also on the Signature Request record page).</td></tr>
-          <tr><td><code>docBuilderDesigner</code>, <code>docBuilderRule</code></td><td>Template Designer tab; reusable rule editor.</td></tr>
+          <tr><td><code>docBuilderDesigner</code></td><td>The Template Designer tab: blocks, the template settings menu, data sources, Apex variables, versions, preview, translation, import and export.</td></tr>
+          <tr><td><code>docBuilderRule</code></td><td>Reusable rule editor. Its fields come from lists: the object's fields, related records, <code>calc:</code> values and <code>apex:</code> variables (passed in <code>calc-names</code> and <code>apex-checks</code>).</td></tr>
+          <tr><td><code>docBuilderFieldPicker</code></td><td>Reusable two-level field picker (field, or related record then its field). Fires <code>change</code> with the path.</td></tr>
+          <tr><td><code>docBuilderImport</code>, <code>docBuilderImportParse</code></td><td>
+            <p>The Import wizard, with three sources: a file or pasted text, a template in this org, or the standard quote layout. Its browser-side reader handles .docx (unzipped with <code>DecompressionStream</code>), HTML, text and DocBuilder exports.</p>
+            <p>Each recognised tag becomes a token kind:</p>
+            <ul>
+              <li><code>field</code>: merge fields in every supported style, including DocuSign Gen <code>Content</code> tags, whose XPath becomes a field path.</li>
+              <li><code>listStart</code> / <code>listEnd</code>: <code>TableStart</code>, Gen <code>TableRow</code>, <code>{{#list}}</code>.</li>
+              <li><code>ifStart</code> / <code>else</code> / <code>ifEnd</code>: <code>{{#if X}}</code>, <code>{{^X}}</code>. A comparison is flagged <code>complex</code>.</li>
+              <li><code>control</code>: other Gen tags.</li>
+            </ul>
+            <p>Word IF fields are counted, and fields nested inside another field's instruction are ignored. <code>balanceSections</code> keeps every text block's conditions paired before saving.</p>
+          </td></tr>
           <tr><td><code>docBuilderSafeHtml</code></td><td>Renders previews by parsing and allow-listing nodes; no <code>innerHTML</code>.</td></tr>
         </tbody>
       </table></div>
@@ -314,27 +443,45 @@ String msg = DocBuilderSign.testConnection('DropboxSign');</code></pre>
         <li>Rich text is cleaned server-side with a tag and attribute allowlist; previews are cleaned again in the browser.</li>
         <li>Email and bulk are gated by custom permissions (<code>DocBuilder_Send_Email</code>, <code>DocBuilder_Bulk_Generate</code>) and limits.</li>
         <li>Unexpected errors show a generic message; detail goes to admin-only <code>Error_Detail__c</code>.</li>
+        <li>Data sources only use objects, fields and operators checked against the schema; every compared value is a bind variable in a <code>USER_MODE</code> query.</li>
+        <li>HTML from Custom content (Apex or Visualforce) passes through <code>DocBuilderRenderer.cleanCode</code>, which removes scripts, frames, forms, event attributes and script URLs. Previews are cleaned again in the browser.</li>
+        <li>Apex variable, content and Visualforce classes run as the user generating the document. Only admins, who have the designer, can choose them.</li>
+        <li>New signature requests are refused for providers that aren't switched on. Requests already sent keep updating.</li>
+        <li><code>saveWatermarkImage</code> accepts only PNG data and attaches it to a template the user can see.</li>
       </ul>
     </section>
 
     <section id="testing">
       <h2>Testing and deployment</h2>
       <ul>
-        <li>Test classes: <code>DocBuilderTest</code>, <code>DocBuilderDesignerTest</code>, <code>DocBuilderSignTest</code>, <code>DocBuilderSecurityTest</code>; helpers in <code>DocBuilderTestUtil</code>.</li>
-        <li>The <code>TestProvider</code> row and <code>DocBuilderSignMock</code> exercise signing without a service. In tests, <code>DocBuilderSign.testSettings</code> supplies provider settings and a <code>Unit_Credential</code> Named Credential name for callout mocks.</li>
-        <li><code>Blob.toPdf</code> is unavailable in tests, so tests store the HTML instead.</li>
+        <li>Test classes: <code>DocBuilderTest</code>, <code>DocBuilderDesignerTest</code>, <code>DocBuilderSignTest</code>, <code>DocBuilderSecurityTest</code>, <code>DocBuilderInstallTest</code>, <code>DocBuilderImportTest</code>, <code>DocBuilderSourcesTest</code> (data sources, Custom content, Apex variables, grouping); helpers in <code>DocBuilderTestUtil</code>. The samples have <code>DocBuilderSampleContentTest</code>.</li>
+        <li>The <code>TestProvider</code> row and <code>DocBuilderSignMock</code> exercise signing without a service. In tests the Test provider always counts as switched on (an org may have turned it off), and <code>DocBuilderSign.testInactive</code> switches providers off. <code>DocBuilderSign.testSettings</code> supplies provider settings and a <code>Unit_Credential</code> Named Credential name for callout mocks.</li>
+        <li><code>Blob.toPdf</code> and <code>PageReference.getContent()</code> are unavailable in tests. Tests store the HTML instead, and Visualforce blocks print a placeholder.</li>
+        <li><code>AuraHandledException</code> hides its message in tests unless it is set with <code>setMessage</code>; the designer controller's newer methods do this (<code>userError</code>) so tests can check the text.</li>
       </ul>
 <pre><code>sf project deploy start --source-dir force-app --target-org &lt;alias&gt; \
   --test-level RunSpecifiedTests --tests DocBuilderTest --tests DocBuilderDesignerTest \
-  --tests DocBuilderSignTest --tests DocBuilderSecurityTest</code></pre>
+  --tests DocBuilderSignTest --tests DocBuilderSecurityTest --tests DocBuilderInstallTest \
+  --tests DocBuilderImportTest --tests DocBuilderSourcesTest</code></pre>
       <div class="note">Changing an object's sharing setting and testing it in the same deploy does not work: sharing is recalculated after the deploy. Deploy objects and permission sets first, wait for the recalculation, then deploy code with tests.</div>
-      <p><code>force-app</code> is the package. <code>org-setup</code> holds org-specific items (the Quote action, the Dropbox Sign credential and its access permission set) and is not part of the package.</p>
+      <p>The project has three folders:</p>
+      <ul>
+        <li><code>force-app</code> is the package, including the Dropbox Sign credential shells, the permission sets and groups, and the post-install script.</li>
+        <li><code>org-setup</code> holds org-specific items (the Quote action).</li>
+        <li><code>samples</code> holds the extension examples.</li>
+      </ul>
+      <p>Neither <code>org-setup</code> nor <code>samples</code> is part of the package.</p>
+      <p>Coverage at the last full run (November 2026): 55 tests, 94% overall, every class with code at 85% or more.</p>
     </section>
 
     <section id="limits">
       <h2>Limits</h2>
       <ul>
         <li>500 rows per related list per document.</li>
+        <li>10 data sources per template, 500 rows each (200 unless set); only sources the template uses are queried.</li>
+        <li>Formulas and rule logic may nest up to 40 levels.</li>
+        <li>Template body up to 131,072 characters, which also applies to imports.</li>
+        <li>Each Apex variable class runs once per document per settings text, inside the same governor limits as the rest of the generation.</li>
         <li>Snapshots are capped at about 130,000 characters; row data is dropped first if larger.</li>
         <li>50 signers per request.</li>
         <li>Status checks handle 10 requests per run; notifications start at most 5 checks of 10 requests per batch.</li>

@@ -2,6 +2,9 @@ import { LightningElement } from 'lwc';
 import describeObject from '@salesforce/apex/DocBuilderDesignerController.describeObject';
 import suggestFields from '@salesforce/apex/DocBuilderDesignerController.suggestFields';
 import importTemplate from '@salesforce/apex/DocBuilderDesignerController.importTemplate';
+import listImportSources from '@salesforce/apex/DocBuilderDesignerController.listImportSources';
+import loadImportSource from '@salesforce/apex/DocBuilderDesignerController.loadImportSource';
+import createStandardQuoteTemplate from '@salesforce/apex/DocBuilderDesignerController.createStandardQuoteTemplate';
 import { parseDocx, parseHtml, parseText, parsePasted, parseExport, escapeHtml, simplify, PLACEHOLDER } from 'c/docBuilderImportParse';
 
 const AS_TEXT = '__text';
@@ -43,6 +46,101 @@ export default class DocBuilderImport extends LightningElement {
     parentMap = {};
 
     // ---------- Step 1: source ----------
+
+    // Where the template comes from: a file or pasted content, a template in this org, or the standard quote layout.
+    mode = 'file';
+    orgTemplates;
+    orgPick = '';
+
+    get modeButtons() {
+        return [
+            { value: 'file', label: 'A file or pasted text' },
+            { value: 'org', label: 'From this org' },
+            { value: 'standard', label: 'Standard Salesforce quote' }
+        ].map((m) => ({ ...m, cls: m.value === this.mode ? 'seg-btn on' : 'seg-btn', pressed: m.value === this.mode ? 'true' : 'false' }));
+    }
+
+    get isFileMode() {
+        return this.mode === 'file';
+    }
+
+    get isOrgMode() {
+        return this.mode === 'org';
+    }
+
+    get isStandardMode() {
+        return this.mode === 'standard';
+    }
+
+    get needsObject() {
+        return this.mode !== 'standard';
+    }
+
+    get orgOptions() {
+        return (this.orgTemplates || []).map((c) => ({ label: `${c.sourceLabel}: ${c.name}`, value: c.source + ':' + c.id }));
+    }
+
+    get noOrgTemplates() {
+        return Array.isArray(this.orgTemplates) && this.orgTemplates.length === 0;
+    }
+
+    get nextLabel() {
+        return this.mode === 'standard' ? 'Create draft template' : 'Next';
+    }
+
+    handleMode(event) {
+        this.mode = event.currentTarget.dataset.mode;
+        this.error = undefined;
+        if (this.mode === 'org' && !this.orgTemplates) {
+            this.work(async () => {
+                this.orgTemplates = await listImportSources();
+            });
+        }
+        if (this.mode === 'standard' && !this.name) {
+            this.name = 'Standard Quote';
+        }
+    }
+
+    handleOrgPick(event) {
+        this.orgPick = event.detail.value;
+        const [source, id] = this.orgPick.split(':');
+        const found = (this.orgTemplates || []).find((c) => c.source === source && c.id === id);
+        if (found) {
+            this.name = found.name ? found.name.slice(0, 80) : this.name;
+            if (found.baseObject) {
+                this.baseObject = found.baseObject;
+            }
+        }
+    }
+
+    /** Reads the chosen org template: CPQ arrives as HTML built from its sections, the others as their file. */
+    async readOrgTemplate() {
+        if (!this.orgPick) {
+            throw new Error('Choose a template first.');
+        }
+        const [source, recordId] = this.orgPick.split(':');
+        const loaded = await loadImportSource({ source, recordId });
+        let model;
+        if (loaded.kind === 'docx') {
+            const bytes = Uint8Array.from(atob(loaded.content), (c) => c.charCodeAt(0));
+            model = await parseDocx(bytes.buffer);
+        } else if (loaded.kind === 'html') {
+            model = parseHtml(loaded.content);
+        } else {
+            model = parseText(loaded.content);
+        }
+        if (loaded.header && !model.header) {
+            model.header = loaded.header;
+        }
+        if (loaded.footer && !model.footer) {
+            model.footer = loaded.footer;
+        }
+        model.notes = [...(model.notes || []), ...(loaded.notes || [])];
+        if (loaded.baseObject && !this.baseObject.trim()) {
+            this.baseObject = loaded.baseObject;
+        }
+        return { model };
+    }
 
     get isSource() {
         return this.step === 'source';
@@ -124,7 +222,12 @@ export default class DocBuilderImport extends LightningElement {
 
     handleRead() {
         this.work(async () => {
-            const source = await this.readSource();
+            if (this.mode === 'standard') {
+                const state = await createStandardQuoteTemplate({ name: this.name.trim() });
+                this.dispatchEvent(new CustomEvent('imported', { detail: { state } }));
+                return;
+            }
+            const source = this.mode === 'org' ? await this.readOrgTemplate() : await this.readSource();
             if (source.exported) {
                 await this.createFromExport(source.exported);
                 return;
@@ -159,6 +262,20 @@ export default class DocBuilderImport extends LightningElement {
     // ---------- Tables ----------
 
     findList(hint) {
+        // A dotted or slashed name (Opportunity.OpportunityLineItems, ./QuoteLineItems/QuoteLineItem) is tried part by part.
+        const parts = String(hint || '')
+            .split(/[./]/)
+            .filter((p) => p);
+        for (const part of parts.length > 1 ? [hint, ...parts] : [hint]) {
+            const found = this.findListPart(part);
+            if (found) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    findListPart(hint) {
         const want = simplify(hint);
         if (!want) {
             return null;
@@ -233,7 +350,8 @@ export default class DocBuilderImport extends LightningElement {
         const inTables = this.repeatTokenIds();
         const names = [];
         this.model.tokens.forEach((t, id) => {
-            if (t.kind === 'field' && !inTables.has(id) && !names.includes(t.name)) {
+            // Conditions ({{#if Field}}) name a field too, so it is mapped like any other.
+            if ((t.kind === 'field' || (t.kind === 'ifStart' && !t.complex)) && !inTables.has(id) && !names.includes(t.name)) {
                 names.push(t.name);
             }
         });
@@ -368,6 +486,18 @@ export default class DocBuilderImport extends LightningElement {
         if (unmatched) {
             out.push(`${unmatched} merge field${unmatched === 1 ? ' is' : 's are'} not matched yet. Unless you choose a field, they print as [Name] so they are easy to find.`);
         }
+        const conditions = m.tokens.filter((t) => t.kind === 'ifStart' && !t.complex).length;
+        if (conditions) {
+            out.push(`${conditions} condition${conditions === 1 ? '' : 's'} ({{#if Field}}) will become DocBuilder conditions once the field is matched. Unmatched ones are left out and their text always prints.`);
+        }
+        const controls = m.tokens.filter((t) => t.kind === 'control' || t.complex).length;
+        if (controls) {
+            out.push(`${controls} tag${controls === 1 ? '' : 's'} with logic DocBuilder can't read directly (for example DocuSign Gen Conditional tags or comparisons) ${controls === 1 ? 'was' : 'were'} left out. Add those conditions in the designer.`);
+        }
+        if (m.wordIfs) {
+            out.push(`${m.wordIfs} Word IF field${m.wordIfs === 1 ? '' : 's'} (conditional text, common in Conga templates) came over as the text Word last showed. Add the condition in the designer.`);
+        }
+        (m.notes || []).forEach((note) => out.push(note));
         return out;
     }
 
@@ -382,9 +512,78 @@ export default class DocBuilderImport extends LightningElement {
 
     // ---------- Building the template ----------
 
-    render(text, map, html) {
+    /**
+     * Makes the condition tags in one piece of text safe to save. A condition whose field wasn't matched
+     * ({{#if __drop}}) keeps its own text and loses its {{else}} part. If the tags don't pair up within the text
+     * (a condition opened in one paragraph group and closed in another), every condition tag is removed and
+     * all the text is kept, so the template never fails to generate.
+     */
+    balanceSections(text) {
+        if (!text || text.indexOf('{{') < 0) {
+            return text;
+        }
+        const tag = new RegExp('\\{\\{\\s*(#if\\s+[^}]+?|else|/if)\\s*\\}\\}', 'g');
+        const stack = [];
+        let out = '';
+        let last = 0;
+        let valid = true;
+        const hidden = () => stack.some((frame) => frame.drop && frame.inElse);
+        let m;
+        while ((m = tag.exec(text)) !== null) {
+            if (!hidden()) {
+                out += text.slice(last, m.index);
+            }
+            last = m.index + m[0].length;
+            const name = m[1].trim();
+            if (name.startsWith('#if')) {
+                const drop = name.includes('__drop');
+                stack.push({ drop, inElse: false });
+                if (!drop && !hidden()) {
+                    out += m[0];
+                }
+            } else if (name === 'else') {
+                const top = stack[stack.length - 1];
+                if (!top) {
+                    valid = false;
+                    break;
+                }
+                if (!top.drop && !hidden()) {
+                    out += m[0];
+                }
+                top.inElse = true;
+            } else {
+                const top = stack.pop();
+                if (!top) {
+                    valid = false;
+                    break;
+                }
+                if (!top.drop && !hidden()) {
+                    out += m[0];
+                }
+            }
+        }
+        if (valid && stack.length === 0) {
+            return out + text.slice(last);
+        }
+        return text.replace(tag, '');
+    }
+
+    /** Replaces placeholders with {{field}} tokens, [Name] text or nothing. (Not called render: that name is reserved by LWC.) */
+    fillTokens(text, map, html) {
         return (text || '').replace(new RegExp(PLACEHOLDER.source, 'g'), (m, id) => {
             const token = this.model.tokens[Number(id)];
+            if (token.kind === 'ifStart') {
+                // Becomes a DocBuilder condition when its field is matched; otherwise it is dropped
+                // (balanceSections then removes its else and end too).
+                const target = token.complex ? null : map[token.name];
+                return target && !target.startsWith('__') ? '{{#if ' + (token.negate ? 'not ' : '') + target + '}}' : '{{#if __drop}}';
+            }
+            if (token.kind === 'else') {
+                return '{{else}}';
+            }
+            if (token.kind === 'ifEnd') {
+                return '{{/if}}';
+            }
             if (token.kind !== 'field') {
                 return '';
             }
@@ -419,7 +618,7 @@ export default class DocBuilderImport extends LightningElement {
         const aligns = new Set(kept.map((p) => p.align || ''));
         const rich = kept.some((p) => p.formatted || p.list) || aligns.size > 1;
         if (!rich) {
-            const block = { id: uid(), type: 'text', text: kept.map((p) => this.render(p.text, this.parentMap, false)).join('\n') };
+            const block = { id: uid(), type: 'text', text: kept.map((p) => this.fillTokens(p.text, this.parentMap, false)).join('\n') };
             const align = kept[0].align;
             if (align) {
                 block.align = align;
@@ -429,7 +628,7 @@ export default class DocBuilderImport extends LightningElement {
         let html = '';
         let openList = null;
         kept.forEach((p) => {
-            const inner = this.render(p.html, this.parentMap, true) || '<br/>';
+            const inner = this.fillTokens(p.html, this.parentMap, true) || '<br/>';
             if (p.list !== openList) {
                 if (openList) {
                     html += '</' + openList + '>';
@@ -453,8 +652,8 @@ export default class DocBuilderImport extends LightningElement {
 
     cellBlock(cell) {
         const block = cell.formatted
-            ? { id: uid(), type: 'text', rich: true, text: '<p>' + this.render(cell.html, this.parentMap, true) + '</p>' }
-            : { id: uid(), type: 'text', text: this.render(cell.text, this.parentMap, false) };
+            ? { id: uid(), type: 'text', rich: true, text: '<p>' + this.fillTokens(cell.html, this.parentMap, true) + '</p>' }
+            : { id: uid(), type: 'text', text: this.fillTokens(cell.text, this.parentMap, false) };
         if (cell.align) {
             block.align = cell.align;
         }
@@ -472,7 +671,7 @@ export default class DocBuilderImport extends LightningElement {
                 return;
             }
             if (row.length > 4) {
-                blocks.push({ id: uid(), type: 'text', text: row.map((cell) => this.render(cell.text, this.parentMap, false).replace(/\n/g, ' ')).join('   ') });
+                blocks.push({ id: uid(), type: 'text', text: row.map((cell) => this.fillTokens(cell.text, this.parentMap, false).replace(/\n/g, ' ')).join('   ') });
                 return;
             }
             const base = Math.floor(100 / row.length);
@@ -507,7 +706,7 @@ export default class DocBuilderImport extends LightningElement {
             if (!value || value.startsWith('__')) {
                 return;
             }
-            const column = { header: header && header[ci] ? this.render(header[ci].text, this.parentMap, false).replace(/\n/g, ' ').trim() : name, field: value };
+            const column = { header: header && header[ci] ? this.fillTokens(header[ci].text, this.parentMap, false).replace(/\n/g, ' ').trim() : name, field: value };
             if (cell.align === 'right' || cell.align === 'center') {
                 column.align = cell.align;
             }
@@ -521,7 +720,7 @@ export default class DocBuilderImport extends LightningElement {
         // Rows under the repeating row, such as totals, print under the table.
         item.rows.slice(table.templateRow + 1).forEach((row) => {
             const text = row
-                .map((cell) => this.render(cell.text, this.parentMap, false).replace(/\n/g, ' ').trim())
+                .map((cell) => this.fillTokens(cell.text, this.parentMap, false).replace(/\n/g, ' ').trim())
                 .filter((t) => t)
                 .join('   ');
             if (text) {
@@ -547,7 +746,7 @@ export default class DocBuilderImport extends LightningElement {
             }
             flush();
             if (item.kind === 'heading') {
-                const text = this.render(item.text, this.parentMap, false).replace(/\n/g, ' ').trim();
+                const text = this.fillTokens(item.text, this.parentMap, false).replace(/\n/g, ' ').trim();
                 if (text) {
                     const block = { id: uid(), type: 'heading', level: item.level || 1, text };
                     if (item.align) {
@@ -567,9 +766,15 @@ export default class DocBuilderImport extends LightningElement {
         while (blocks.length && blocks[blocks.length - 1].type === 'pagebreak') {
             blocks.pop();
         }
+        // Conditions must open and close within one block of text.
+        blocks.forEach((block) => {
+            if (typeof block.text === 'string') {
+                block.text = this.balanceSections(block.text);
+            }
+        });
         const page = {};
-        const header = this.render(this.model.header, this.parentMap, false).trim();
-        const footer = this.render(this.model.footer, this.parentMap, false).trim();
+        const header = this.balanceSections(this.fillTokens(this.model.header, this.parentMap, false)).trim();
+        const footer = this.balanceSections(this.fillTokens(this.model.footer, this.parentMap, false)).trim();
         if (header) {
             page.header = { text: header };
         }

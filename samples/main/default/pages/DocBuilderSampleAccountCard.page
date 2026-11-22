@@ -1,0 +1,48 @@
+<apex:page controller="DocBuilderSampleAccountCardController" showHeader="false" sidebar="false" standardStylesheets="false" applyHtmlTag="false" applyBodyTag="false">
+    <!--
+        SAMPLE Visualforce page for a DocBuilder Custom block ("A Visualforce page").
+        DocBuilder opens it with ?id= the record's Id and prints what it outputs. Keep it to simple tables and inline
+        styles, as the PDF engine supports CSS 2.1 only; no renderAs, scripts or forms.
+    -->
+    <apex:outputPanel layout="none" rendered="{!hasAccount}">
+        <table style="width:100%;border-collapse:collapse;margin:6pt 0 10pt 0;border:0.75pt solid #C5CBD6">
+            <tr>
+                <td colspan="4" style="background:#F2F4F7;padding:6pt 8pt;font-size:12pt;font-weight:bold">
+                    <apex:outputText value="About {!account.Name}"/>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding:4pt 8pt;color:#5A6476;font-size:9pt;width:20%">Industry</td>
+                <td style="padding:4pt 8pt;width:30%"><apex:outputText value="{!account.Industry}"/></td>
+                <td style="padding:4pt 8pt;color:#5A6476;font-size:9pt;width:20%">Account owner</td>
+                <td style="padding:4pt 8pt;width:30%"><apex:outputText value="{!account.Owner.Name}"/></td>
+            </tr>
+            <tr>
+                <td style="padding:4pt 8pt;color:#5A6476;font-size:9pt">Location</td>
+                <td style="padding:4pt 8pt"><apex:outputText value="{!account.BillingCity}"/>&nbsp;<apex:outputText value="{!account.BillingCountry}"/></td>
+                <td style="padding:4pt 8pt;color:#5A6476;font-size:9pt">Employees</td>
+                <td style="padding:4pt 8pt"><apex:outputText value="{0, number, ###,###,##0}"><apex:param value="{!account.NumberOfEmployees}"/></apex:outputText></td>
+            </tr>
+        </table>
+        <apex:outputPanel layout="none" rendered="{!hasWins}">
+            <p style="margin:0 0 4pt 0;font-weight:bold">Recent successes together</p>
+            <table style="width:100%;border-collapse:collapse;font-size:10pt">
+                <tr>
+                    <th style="text-align:left;padding:4pt;border-bottom:1pt solid #16202E">Deal</th>
+                    <th style="text-align:left;padding:4pt;border-bottom:1pt solid #16202E">Closed</th>
+                    <th style="text-align:right;padding:4pt;border-bottom:1pt solid #16202E">Amount</th>
+                </tr>
+                <apex:repeat value="{!wins}" var="w">
+                    <tr>
+                        <td style="padding:4pt;border-bottom:0.5pt solid #C5CBD6"><apex:outputText value="{!w.Name}"/></td>
+                        <td style="padding:4pt;border-bottom:0.5pt solid #C5CBD6"><apex:outputText value="{0, date, d MMM yyyy}"><apex:param value="{!w.CloseDate}"/></apex:outputText></td>
+                        <td style="padding:4pt;border-bottom:0.5pt solid #C5CBD6;text-align:right"><apex:outputField value="{!w.Amount}"/></td>
+                    </tr>
+                </apex:repeat>
+            </table>
+        </apex:outputPanel>
+    </apex:outputPanel>
+    <apex:outputPanel layout="none" rendered="{!NOT(hasAccount)}">
+        <p style="color:#5A6476">No account is linked to this record.</p>
+    </apex:outputPanel>
+</apex:page>

@@ -1,7 +1,8 @@
 {
   "packageDirectories": [
     { "path": "force-app", "default": true, "postInstallScript": "DocBuilderInstall" },
-    { "path": "org-setup", "default": false }
+    { "path": "org-setup", "default": false },
+    { "path": "samples", "default": false }
   ],
   "name": "DocBuilder",
   "namespace": "",

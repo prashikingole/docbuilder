@@ -13,7 +13,8 @@ public with sharing class DocBuilderRenderer {
         'table.t th{text-align:left;padding:5pt;border-bottom:1.5pt solid #16202E;font-size:10pt}' +
         'table.t td{padding:5pt;border-bottom:0.5pt solid #C5CBD6;font-size:10pt}' +
         'table.t .r{text-align:right}table.t .c{text-align:center}' +
-        'table.t tr.tot td{border-bottom:none;font-weight:bold}' +
+        'table.t tr.tot td{border-bottom:none;font-weight:bold}table.t tr.tot.sub td{font-weight:normal;color:#3A4658}' +
+        'table.t tr.grp td{font-weight:bold;background:#F2F4F7;border-bottom:0.5pt solid #C5CBD6}' +
         'ol{margin:0 0 10pt 0;padding-left:18pt}ul{margin:0 0 10pt 0;padding-left:18pt}li{margin-bottom:4pt}' +
         '.right{text-align:right}.center{text-align:center}' +
         '.rich{margin:0 0 10pt 0}.rich p{margin:0 0 6pt 0}' +
@@ -54,7 +55,7 @@ public with sharing class DocBuilderRenderer {
             html += '<div class="dbfooter">' + footer + '</div>';
         }
         if (mark != null) {
-            html += watermarkHtml(mark, box);
+            html += watermarkHtml(mark, box, ctx.section('watermark'), draft == true);
         }
         return html + bodyHtml + '</body></html>';
     }
@@ -104,17 +105,54 @@ public with sharing class DocBuilderRenderer {
      * top-left corner of the content area and ignores percentage heights and vertical centring, so the position is
      * worked out in millimetres from the page size and margins, and the text is sized to fit the page width.
      */
+    static final Map<String, String> WATERMARK_SHADES = new Map<String, String>{ 'light' => '#E9EBF0', 'medium' => '#D3D8E1', 'dark' => '#AEB5C2' };
+    // Largest text size (pt) across the page, and share of the page a diagonal watermark spans, per size choice.
+    static final Map<String, Integer> WATERMARK_MAX_PT = new Map<String, Integer>{ 'fit' => 96, 'large' => 80, 'medium' => 56, 'small' => 36 };
+    static final Map<String, Decimal> WATERMARK_SPAN = new Map<String, Decimal>{ 'fit' => 1, 'large' => 0.85, 'medium' => 0.65, 'small' => 0.45 };
+    static final Pattern FILE_ID = Pattern.compile('[a-zA-Z0-9]{15,18}');
+
+    static String setting(Map<String, Object> settings, String key, Set<String> allowed, String fallback) {
+        String value = settings == null || settings.get(key) == null ? null : String.valueOf(settings.get(key)).toLowerCase();
+        return value != null && allowed.contains(value) ? value : fallback;
+    }
+
+    /**
+     * Diagonal: the PDF engine cannot rotate text, so the designer draws the words at 45 degrees into a transparent
+     * image (imageId, and draftImageId for DRAFT), which is placed centred as a square.
+     * Across: text centred in the content area, sized to fit the width.
+     */
     @TestVisible
-    static String watermarkHtml(String mark, PageBox box) {
+    static String watermarkHtml(String mark, PageBox box, Map<String, Object> settings, Boolean draft) {
         Decimal contentWidth = box.width - 2 * box.side;
         Decimal contentHeight = box.height - box.top - box.bottom;
+        String size = setting(settings, 'size', WATERMARK_MAX_PT.keySet(), 'fit');
+        String shade = setting(settings, 'shade', WATERMARK_SHADES.keySet(), 'light');
+        if (setting(settings, 'direction', new Set<String>{ 'across', 'diagonal' }, 'across') == 'diagonal') {
+            Object imageId = settings.get(draft ? 'draftImageId' : 'imageId');
+            if (imageId != null && FILE_ID.matcher(String.valueOf(imageId)).matches()) {
+                Decimal side = (Math.min(contentWidth, contentHeight) * WATERMARK_SPAN.get(size)).setScale(1, RoundingMode.HALF_UP);
+                Decimal left = ((contentWidth - side) / 2).setScale(1, RoundingMode.HALF_UP);
+                Decimal top = ((contentHeight - side) / 2).setScale(1, RoundingMode.HALF_UP);
+                return '<img src="/sfc/servlet.shepherd/version/download/' + imageId + '" style="position:fixed;left:' + left + 'mm;top:' + top +
+                    'mm;width:' + side + 'mm;height:' + side + 'mm;z-index:-1"/>';
+            }
+            // No image (for example the text contains fields): print it across the page instead.
+        }
         // Bold capitals in Helvetica average about 0.7 em wide; 1 pt = 0.3528 mm. Leave 10% of the width free.
         Decimal fit = (contentWidth * 0.9) / (Math.max(mark.length(), 1) * 0.7 * 0.3528);
-        Integer size = Math.max(28, Math.min(96, fit.intValue()));
-        Decimal lineHeight = size * 0.3528 * 1.2;
+        Integer points = Math.max(Math.min(28, WATERMARK_MAX_PT.get(size)), Math.min(WATERMARK_MAX_PT.get(size), fit.intValue()));
+        Decimal lineHeight = points * 0.3528 * 1.2;
         Decimal top = ((contentHeight - lineHeight) / 2).setScale(1, RoundingMode.HALF_UP);
         return '<div style="position:fixed;left:0;top:' + top + 'mm;width:' + contentWidth.setScale(1) + 'mm;text-align:center;' +
-            'font-size:' + size + 'pt;line-height:1.2;font-weight:bold;color:#E9EBF0;z-index:-1">' + mark + '</div>';
+            'font-size:' + points + 'pt;line-height:1.2;font-weight:bold;color:' + WATERMARK_SHADES.get(shade) + ';z-index:-1">' + mark + '</div>';
+    }
+
+    /** CSS classes for the on-screen watermark, matching the PDF's direction, size and shade. */
+    static String watermarkClasses(Map<String, Object> settings) {
+        return 'pv-watermark' +
+            (setting(settings, 'direction', new Set<String>{ 'across', 'diagonal' }, 'across') == 'diagonal' ? ' diag' : '') +
+            ' size-' + setting(settings, 'size', WATERMARK_MAX_PT.keySet(), 'fit') +
+            ' shade-' + setting(settings, 'shade', WATERMARK_SHADES.keySet(), 'light');
     }
 
     /** On-screen approximation of the document for the designer and the generate dialog. */
@@ -122,7 +160,7 @@ public with sharing class DocBuilderRenderer {
         String header = headerHtml(ctx);
         String footer = footerHtml(ctx, false);
         String mark = watermarkText(ctx, false);
-        return (mark == null ? '' : '<div class="pv-watermark">' + mark + '</div>') +
+        return (mark == null ? '' : '<div class="' + watermarkClasses(ctx.section('watermark')) + '">' + mark + '</div>') +
             (header == null ? '' : '<div class="pv-header">' + header + '</div>') +
             '<div class="pv-body">' + renderBody(ctx) + '</div>' +
             (footer == null ? '' : '<div class="pv-footer">' + footer + '</div>');
@@ -269,6 +307,9 @@ public with sharing class DocBuilderRenderer {
         if (type == 'signature') {
             return signature(ctx, blk);
         }
+        if (type == 'custom') {
+            return customContent(ctx, blk);
+        }
         if (type == 'image') {
             String image = imageTag(blk.get('contentVersionId'), blk.get('width'), 200);
             return image == null ? '' : '<div' + alignClass(blk, 'img') + '>' + image + '</div>';
@@ -277,6 +318,126 @@ public with sharing class DocBuilderRenderer {
             return '<div' + alignClass(blk, 'rich') + '>' + ctx.mergeRich((String) blk.get('text')) + '</div>';
         }
         return '<p' + alignClass(blk, '') + '>' + ctx.mergeHtml((String) blk.get('text')) + '</p>';
+    }
+
+    // ---------- Custom content: an Apex class or a Visualforce page ----------
+
+    static final Pattern CLASS_NAME = Pattern.compile('^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)?$');
+    static final Pattern PAGE_NAME = Pattern.compile('^[A-Za-z][A-Za-z0-9_]*$');
+    static final Pattern CODE_DROP_WITH_CONTENT = Pattern.compile('(?is)<(script|iframe|object|embed|noscript|template|svg|math|form|head|title)\\b.*?</\\1\\s*>');
+    static final Pattern CODE_DROP_TAG = Pattern.compile('(?is)</?(script|iframe|object|embed|link|meta|base|form|input|button|select|textarea|html|body|head|frame|frameset|applet)\\b[^>]*>');
+    static final Pattern CODE_EVENT_ATTR = Pattern.compile('(?is)\\s(on[a-z]+|formaction|srcdoc)\\s*=\\s*("[^"]*"|\'[^\']*\'|[^\\s>]+)');
+    static final Pattern CODE_SCRIPT_URL = Pattern.compile('(?is)\\s(href|src|action|background)\\s*=\\s*("\\s*(javascript|vbscript|data):[^"]*"|\'\\s*(javascript|vbscript|data):[^\']*\')');
+
+    /**
+     * Content written by a developer (Apex) or an admin (Visualforce). It is trusted to lay itself out, so tables
+     * and styles are kept, but anything that could run code or send data anywhere is removed: scripts, frames,
+     * forms, event attributes and script URLs. Previews are cleaned again in the browser with a strict allowlist.
+     */
+    public static String cleanCode(String html) {
+        if (String.isBlank(html)) {
+            return '';
+        }
+        String out = CODE_DROP_WITH_CONTENT.matcher(html).replaceAll('');
+        out = CODE_DROP_TAG.matcher(out).replaceAll('');
+        out = CODE_EVENT_ATTR.matcher(out).replaceAll('');
+        return CODE_SCRIPT_URL.matcher(out).replaceAll('');
+    }
+
+    /** The provider an Apex class name refers to, after checking it implements DocBuilderContentProvider. */
+    public static DocBuilderContentProvider contentProvider(String className) {
+        if (String.isBlank(className) || !CLASS_NAME.matcher(className.trim()).matches()) {
+            throw new DocBuilder.DocBuilderException('"' + className + '" is not a valid Apex class name.');
+        }
+        Type t = Type.forName(className.trim());
+        if (t == null) {
+            throw new DocBuilder.DocBuilderException('There is no Apex class called "' + className + '" that DocBuilder can use. It must be global or public in this org.');
+        }
+        Object instance;
+        try {
+            instance = t.newInstance();
+        } catch (Exception e) {
+            throw new DocBuilder.DocBuilderException('Apex class "' + className + '" could not be created: ' + e.getMessage());
+        }
+        if (!(instance instanceof DocBuilderContentProvider)) {
+            throw new DocBuilder.DocBuilderException('Apex class "' + className + '" does not implement DocBuilderContentProvider.');
+        }
+        return (DocBuilderContentProvider) instance;
+    }
+
+    static String customContent(DocBuilderContext ctx, Map<String, Object> blk) {
+        String kind = blk.get('source') == null ? 'apex' : String.valueOf(blk.get('source'));
+        String html;
+        if (kind == 'visualforce') {
+            html = visualforceContent(ctx, (String) blk.get('page'));
+        } else {
+            String className = (String) blk.get('className');
+            if (String.isBlank(className)) {
+                return '';
+            }
+            DocBuilderContentRequest request = new DocBuilderContentRequest();
+            request.recordId = ctx.recordId;
+            request.objectName = ctx.baseObject;
+            request.settings = (String) blk.get('settings');
+            request.language = ctx.language;
+            try {
+                html = contentProvider(className).render(request);
+            } catch (DocBuilder.DocBuilderException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new DocBuilder.DocBuilderException('The Apex class "' + className + '" in a Custom content block failed: ' + e.getMessage());
+            }
+        }
+        return '<div' + alignClass(blk, 'custom') + '>' + cleanCode(html) + '</div>';
+    }
+
+    /**
+     * The body of a Visualforce page rendered for this record (?id=recordId). Salesforce treats this like a
+     * callout, so it must happen before anything is saved in the same transaction; DocBuilder renders before it saves.
+     */
+    static String visualforceContent(DocBuilderContext ctx, String pageName) {
+        if (String.isBlank(pageName)) {
+            return '';
+        }
+        String name = pageName.trim();
+        if (!PAGE_NAME.matcher(name).matches()) {
+            throw new DocBuilder.DocBuilderException('"' + pageName + '" is not a valid Visualforce page name.');
+        }
+        // Page content cannot be fetched while Apex tests run.
+        if (Test.isRunningTest()) {
+            return '<p>[Visualforce page ' + name.escapeHtml4() + ']</p>';
+        }
+        PageReference page = new PageReference('/apex/' + name);
+        if (ctx.recordId != null) {
+            page.getParameters().put('id', ctx.recordId);
+        }
+        String html;
+        try {
+            html = page.getContent().toString();
+        } catch (Exception e) {
+            throw new DocBuilder.DocBuilderException(
+                'The Visualforce page "' + name + '" could not be included: ' + e.getMessage() +
+                (e.getMessage().containsIgnoreCase('uncommitted') ? ' Generate the document before saving other changes in the same step (for example, in a separate Flow transaction).' : '')
+            );
+        }
+        // Only the page's body is kept; its <head> (scripts, Salesforce styles) is left out.
+        Integer open = html.toLowerCase().indexOf('<body');
+        if (open >= 0) {
+            Integer start = html.indexOf('>', open);
+            Integer close = html.toLowerCase().lastIndexOf('</body>');
+            html = start < 0 ? '' : html.substring(start + 1, close > start ? close : html.length());
+        }
+        return html;
+    }
+
+    /** Checks a Custom content block's Apex class for the designer: null when it can be used, otherwise why not. */
+    public static String checkContentProvider(String className) {
+        try {
+            contentProvider(className);
+            return null;
+        } catch (Exception e) {
+            return e.getMessage();
+        }
     }
 
     /**
@@ -412,6 +573,34 @@ public with sharing class DocBuilderRenderer {
             html += '<th' + cellClass(column) + '>' + header.escapeHtml4() + '</th>';
         }
         html += '</tr></thead><tbody>';
+        String groupBy = (String) blk.get('groupBy');
+        if (String.isBlank(groupBy)) {
+            html += tableRows(ctx, columns, rows);
+        } else {
+            // Rows are grouped by one field, groups in the order their first row appears (so sort the table to order them).
+            Map<String, List<SObject>> groups = new Map<String, List<SObject>>();
+            for (SObject row : rows) {
+                String label = ctx.formatValue(row, groupBy, null);
+                label = String.isBlank(label) ? '(none)' : label;
+                if (!groups.containsKey(label)) {
+                    groups.put(label, new List<SObject>());
+                }
+                groups.get(label).add(row);
+            }
+            for (String label : groups.keySet()) {
+                html += '<tr class="grp"><td colspan="' + Math.max(1, columns.size()) + '">' + label.escapeHtml4() + '</td></tr>';
+                html += tableRows(ctx, columns, groups.get(label));
+                if (blk.get('groupTotals') == true) {
+                    html += totalRows(ctx, blk, columns, groups.get(label), label + ': ');
+                }
+            }
+        }
+        html += totalRows(ctx, blk, columns, rows, '');
+        return html + '</tbody></table>';
+    }
+
+    static String tableRows(DocBuilderContext ctx, List<Object> columns, List<SObject> rows) {
+        String html = '';
         for (SObject row : rows) {
             html += '<tr>';
             for (Object c : columns) {
@@ -421,11 +610,17 @@ public with sharing class DocBuilderRenderer {
             }
             html += '</tr>';
         }
+        return html;
+    }
+
+    /** The table's summary rows over the given rows; prefix names the group for subtotals. */
+    static String totalRows(DocBuilderContext ctx, Map<String, Object> blk, List<Object> columns, List<SObject> rows, String prefix) {
+        String html = '';
         for (Object t : DocBuilderContext.asList(blk.get('totals'))) {
             Map<String, Object> total = (Map<String, Object>) t;
-            String label = total.get('label') == null ? '' : (String) total.get('label');
+            String label = prefix + (total.get('label') == null ? '' : (String) total.get('label'));
             String value = ctx.formatTableTotal((String) total.get('calc'), (String) total.get('format'), (String) blk.get('source'), rows);
-            html += '<tr class="tot">';
+            html += '<tr class="tot' + (String.isBlank(prefix) ? '' : ' sub') + '">';
             if (columns.size() > 1) {
                 html += '<td class="r" colspan="' + (columns.size() - 1) + '">' + label.escapeHtml4() + '</td>';
                 html += '<td class="r">' + value.escapeHtml4() + '</td></tr>';
@@ -434,7 +629,7 @@ public with sharing class DocBuilderRenderer {
                 html += '<td class="r">' + (String.isBlank(label) ? '' : label.escapeHtml4() + ' ') + value.escapeHtml4() + '</td></tr>';
             }
         }
-        return html + '</tbody></table>';
+        return html;
     }
 
     static String terms(DocBuilderContext ctx, Map<String, Object> blk, String blockId) {

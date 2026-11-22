@@ -103,9 +103,39 @@ global with sharing class DocBuilderSign {
         ];
     }
 
+    /** Providers a test treats as switched off (provider rows cannot be changed in a test). */
+    @TestVisible
+    static Set<String> testInactive = new Set<String>();
+
+    /**
+     * Whether new requests may go through this provider. In Apex tests the Test provider always counts as
+     * switched on, because provider rows cannot be created there and an org may have switched it off.
+     */
+    static Boolean isActive(String providerName) {
+        if (testInactive.contains(providerName)) {
+            return false;
+        }
+        if (Test.isRunningTest() && providerName == 'TestProvider') {
+            return true;
+        }
+        List<DocSignProvider__mdt> found = rows(providerName);
+        return !found.isEmpty() && found[0].Active__c == true;
+    }
+
     public static List<ProviderOption> activeProviders() {
         List<ProviderOption> options = new List<ProviderOption>();
+        List<DocSignProvider__mdt> active = new List<DocSignProvider__mdt>();
+        Boolean hasTestProvider = false;
         for (DocSignProvider__mdt row : rows(null)) {
+            if (!testInactive.contains(row.DeveloperName)) {
+                active.add(row);
+                hasTestProvider = hasTestProvider || row.DeveloperName == 'TestProvider';
+            }
+        }
+        if (Test.isRunningTest() && !hasTestProvider && !testInactive.contains('TestProvider')) {
+            active.addAll(rows('TestProvider'));
+        }
+        for (DocSignProvider__mdt row : active) {
             ProviderOption option = new ProviderOption();
             option.name = row.DeveloperName;
             option.label = String.isBlank(row.Button_Label__c) ? 'Send with ' + row.MasterLabel : row.Button_Label__c;
@@ -212,7 +242,12 @@ global with sharing class DocBuilderSign {
         if (request == null || request.recordId == null || request.templateId == null || String.isBlank(request.providerName)) {
             throw new DocBuilder.DocBuilderException('A template, a record and a signature provider are required.');
         }
+        // New requests only go through providers an admin has switched on. Requests already sent keep
+        // being checked and can still be withdrawn after their provider is switched off.
         providerFor(request.providerName);
+        if (!isActive(request.providerName)) {
+            throw new DocBuilder.DocBuilderException('The signature provider "' + request.providerName + '" is not switched on. Ask your admin to activate it.');
+        }
 
         DocBuilder.Request generate = new DocBuilder.Request();
         generate.templateId = request.templateId;

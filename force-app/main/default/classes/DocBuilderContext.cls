@@ -17,6 +17,8 @@ public with sharing class DocBuilderContext {
     public Id recordId;
     public Map<String, Object> body;
     public String fileNamePattern;
+    /** The language being generated, passed on to Custom content blocks. Null means the template's default. */
+    public String language;
     public SObject record;
     public Map<String, List<SObject>> lists = new Map<String, List<SObject>>();
     public Map<String, Decimal> calcs = new Map<String, Decimal>();
@@ -71,20 +73,465 @@ public with sharing class DocBuilderContext {
         }
         record = rows[0];
         for (String rel : childFields.keySet()) {
+            if (isDataSource(rel)) {
+                continue;
+            }
             List<SObject> kids = rel.contains('.') ? loadParentList(rel) : record.getSObjects(rel);
             lists.put(rel, kids == null ? new List<SObject>() : kids);
         }
+        loadDataSources(null);
         computeCalcs();
     }
 
-    /** Runs the template's main query against no record, to surface missing or inaccessible fields. Returns null when valid. */
+    /** Runs the template's queries against no record, to surface missing or inaccessible fields. Returns null when valid. */
     public String check() {
         try {
             Database.queryWithBinds(buildSoql(), new Map<String, Object>{ 'recordId' => null }, AccessLevel.USER_MODE);
+            loadDataSources(1);
             return null;
         } catch (Exception e) {
             return e.getMessage();
         }
+    }
+
+    // ---------- Apex variables: values from code, used as apex:Name in rules and {{apex:Name}} in text ----------
+    // A variable is either a yes/no from a DocBuilderConditionProvider, or one named value of a
+    // DocBuilderVariableProvider, which can supply any number of values from a single class.
+
+    static final Pattern CHECK_NAME = Pattern.compile('^[A-Za-z][A-Za-z0-9_]{0,39}$');
+    static final Pattern CHECK_CLASS = Pattern.compile('^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)?$');
+    Map<String, Object> apexResults = new Map<String, Object>();
+    // Class + settings -> every value it supplied, so a class serving several variables runs once per document.
+    Map<String, Map<String, Object>> providerValues = new Map<String, Map<String, Object>>();
+
+    /** An instance of an Apex class that implements DocBuilderConditionProvider or DocBuilderVariableProvider. */
+    public static Object apexProvider(String className) {
+        if (String.isBlank(className) || !CHECK_CLASS.matcher(className.trim()).matches()) {
+            throw new DocBuilder.DocBuilderException('"' + className + '" is not a valid Apex class name.');
+        }
+        Type t = Type.forName(className.trim());
+        if (t == null) {
+            throw new DocBuilder.DocBuilderException('There is no Apex class called "' + className + '" that DocBuilder can use. It must be global or public in this org.');
+        }
+        Object instance;
+        try {
+            instance = t.newInstance();
+        } catch (Exception e) {
+            throw new DocBuilder.DocBuilderException('Apex class "' + className + '" could not be created: ' + e.getMessage());
+        }
+        if (!(instance instanceof DocBuilderConditionProvider) && !(instance instanceof DocBuilderVariableProvider)) {
+            throw new DocBuilder.DocBuilderException('Apex class "' + className + '" does not implement DocBuilderVariableProvider or DocBuilderConditionProvider.');
+        }
+        return instance;
+    }
+
+    /** Kept for the Apex check API: the class behind a yes/no check. */
+    public static DocBuilderConditionProvider conditionProvider(String className) {
+        Object instance = apexProvider(className);
+        if (!(instance instanceof DocBuilderConditionProvider)) {
+            throw new DocBuilder.DocBuilderException('Apex class "' + className + '" does not implement DocBuilderConditionProvider.');
+        }
+        return (DocBuilderConditionProvider) instance;
+    }
+
+    /** The variables a variable provider offers (name -> Boolean, Number, Text or Date), or null for a yes/no check class. */
+    public static Map<String, String> variablesOf(String className) {
+        Object instance = apexProvider(className);
+        if (!(instance instanceof DocBuilderVariableProvider)) {
+            return null;
+        }
+        Map<String, String> described = ((DocBuilderVariableProvider) instance).describeVariables();
+        return described == null ? new Map<String, String>() : described;
+    }
+
+    static Object valueNamed(Map<String, Object> values, String name) {
+        if (values == null || name == null) {
+            return null;
+        }
+        if (values.containsKey(name)) {
+            return values.get(name);
+        }
+        for (String key : values.keySet()) {
+            if (key != null && key.equalsIgnoreCase(name)) {
+                return values.get(key);
+            }
+        }
+        return null;
+    }
+
+    /** An Apex variable's value for this document, worked out once. */
+    public Object apexValue(String name) {
+        String key = name.trim().toLowerCase();
+        if (!apexResults.containsKey(key)) {
+            Map<String, Object> def = apexCheckDef(name.trim());
+            String className = (String) def.get('className');
+            String settings = (String) def.get('settings');
+            Object answer;
+            try {
+                Object provider = apexProvider(className);
+                if (provider instanceof DocBuilderVariableProvider) {
+                    String cacheKey = className.trim().toLowerCase() + '|' + (settings == null ? '' : settings);
+                    if (!providerValues.containsKey(cacheKey)) {
+                        providerValues.put(cacheKey, ((DocBuilderVariableProvider) provider).getValues(request(settings)));
+                    }
+                    String variable = def.get('variable') == null ? name.trim() : String.valueOf(def.get('variable'));
+                    answer = valueNamed(providerValues.get(cacheKey), variable);
+                } else {
+                    answer = ((DocBuilderConditionProvider) provider).evaluate(request(settings)) == true;
+                }
+            } catch (DocBuilder.DocBuilderException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new DocBuilder.DocBuilderException('The Apex variable "' + name + '" (' + className + ') failed: ' + e.getMessage());
+            }
+            apexResults.put(key, answer);
+            logicLog.put('apex:' + name.trim(), answer);
+        }
+        return apexResults.get(key);
+    }
+
+    DocBuilderContentRequest request(String settings) {
+        DocBuilderContentRequest request = new DocBuilderContentRequest();
+        request.recordId = recordId;
+        request.objectName = baseObject;
+        request.settings = settings;
+        request.language = language;
+        return request;
+    }
+
+    /** Whether an Apex variable counts as true in {{#if apex:Name}}: yes, a number other than 0, or any other value. */
+    public Boolean apexCheck(String name) {
+        Object value = apexValue(name);
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof Decimal || value instanceof Integer || value instanceof Long || value instanceof Double) {
+            return Decimal.valueOf(String.valueOf(value)) != 0;
+        }
+        return String.isNotBlank(String.valueOf(value));
+    }
+
+    Map<String, Object> apexCheckDef(String name) {
+        for (Object c : asList(body.get('apexChecks'))) {
+            Map<String, Object> def = (Map<String, Object>) c;
+            if (def.get('name') != null && String.valueOf(def.get('name')).trim().equalsIgnoreCase(name)) {
+                return def;
+            }
+        }
+        throw new DocBuilder.DocBuilderException('Apex variable "' + name + '" is used but not defined. Add it under Conditions.');
+    }
+
+    /** Null when every Apex variable is named properly and its class (and value) can be used, otherwise the problem. */
+    public String checkApexChecks() {
+        Set<String> seen = new Set<String>();
+        for (Object c : asList(body.get('apexChecks'))) {
+            Map<String, Object> def = (Map<String, Object>) c;
+            String name = def.get('name') == null ? '' : String.valueOf(def.get('name')).trim();
+            if (!CHECK_NAME.matcher(name).matches()) {
+                return 'Apex variable "' + name + '" needs a name of letters, digits and underscores.';
+            }
+            if (!seen.add(name.toLowerCase())) {
+                return 'Two Apex variables are called "' + name + '".';
+            }
+            try {
+                Map<String, String> offered = variablesOf((String) def.get('className'));
+                String variable = def.get('variable') == null ? name : String.valueOf(def.get('variable'));
+                if (offered != null && valueNamed(offered, variable) == null) {
+                    return 'Apex variable "' + name + '": ' + def.get('className') + ' has no value called "' + variable + '". It offers: ' + String.join(new List<String>(offered.keySet()), ', ') + '.';
+                }
+            } catch (Exception e) {
+                return 'Apex variable "' + name + '": ' + e.getMessage();
+            }
+        }
+        // Every apex:Name used in rules or text must be defined.
+        Matcher used = Pattern.compile('apex:([A-Za-z][A-Za-z0-9_]*)').matcher(JSON.serialize(body));
+        while (used.find()) {
+            if (!seen.contains(used.group(1).toLowerCase())) {
+                return 'Apex variable "' + used.group(1) + '" is used but not defined. Add it under Conditions.';
+            }
+        }
+        return null;
+    }
+    // ---------- Data sources: extra queries for related-of-related or unrelated records ----------
+
+    static final Pattern DS_KEY = Pattern.compile('^ds:[A-Za-z][A-Za-z0-9_]{0,39}$');
+    static final Integer MAX_DATA_SOURCES = 10;
+    static final Integer DS_DEFAULT_LIMIT = 200;
+    static final Map<String, String> DS_OPERATORS = new Map<String, String>{
+        'eq' => '=',
+        'ne' => '!=',
+        'gt' => '>',
+        'ge' => '>=',
+        'lt' => '<',
+        'le' => '<=',
+        'contains' => 'LIKE',
+        'in' => 'IN',
+        'notIn' => 'NOT IN'
+    };
+
+    static Boolean isDataSource(String key) {
+        return key != null && key.startsWith('ds:');
+    }
+
+    /** A list: a relationship path such as QuoteLineItems or Account.Contacts, or a data source written ds:Name. */
+    public static String listKey(String source) {
+        if (source != null && source.trim().startsWith('ds:')) {
+            String key = source.trim();
+            if (!DS_KEY.matcher(key).matches()) {
+                throw new DocBuilder.DocBuilderException('"' + source + '" is not a valid data source name. Use letters, digits and underscores.');
+            }
+            return key;
+        }
+        return safe(source);
+    }
+
+    /** Adds the field a ds:Name.Field path reads to that data source's query. */
+    void addDataSourceField(String path) {
+        if (!path.contains('.')) {
+            throw new DocBuilder.DocBuilderException('"' + path + '" needs a field after the data source name, for example ' + path + '.Name');
+        }
+        addField(child(listKey(path.substringBefore('.'))), path.substringAfter('.'));
+    }
+
+    Map<String, Map<String, Object>> dataSourceDefs;
+
+    /** The template's data sources by key (ds:Name), checked for count, names and duplicates. */
+    Map<String, Map<String, Object>> dataSourceDefs() {
+        if (dataSourceDefs == null) {
+            dataSourceDefs = new Map<String, Map<String, Object>>();
+            List<Object> defs = asList(body.get('dataSources'));
+            if (defs.size() > MAX_DATA_SOURCES) {
+                throw new DocBuilder.DocBuilderException('A template can have up to ' + MAX_DATA_SOURCES + ' data sources.');
+            }
+            for (Object d : defs) {
+                Map<String, Object> def = (Map<String, Object>) d;
+                String key = listKey('ds:' + String.valueOf(def.get('name')).trim());
+                if (dataSourceDefs.containsKey(key)) {
+                    throw new DocBuilder.DocBuilderException('Two data sources are called "' + key.substring(3) + '". Give each a different name.');
+                }
+                dataSourceDefs.put(key, def);
+            }
+        }
+        return dataSourceDefs;
+    }
+
+    /** Collects the record fields and list fields that data source filters compare with. */
+    void collectDataSources() {
+        for (String key : dataSourceDefs().keySet()) {
+            for (Object f : asList(dataSourceDefs().get(key).get('filters'))) {
+                Map<String, Object> filter = (Map<String, Object>) f;
+                String fromKind = filter.get('from') == null ? 'value' : String.valueOf(filter.get('from'));
+                if (fromKind == 'record' && String.isNotBlank((String) filter.get('recordField'))) {
+                    addField(parentFields, (String) filter.get('recordField'));
+                } else if (fromKind == 'list' && String.isNotBlank((String) filter.get('list'))) {
+                    String listName = listKey((String) filter.get('list'));
+                    if (isDataSource(listName)) {
+                        // Another data source used only as a filter is still loaded.
+                        child(listName);
+                    }
+                    addField(child(listName), (String) filter.get('listField'));
+                }
+            }
+        }
+        for (String key : childFields.keySet()) {
+            if (isDataSource(key) && !dataSourceDefs().containsKey(key)) {
+                throw new DocBuilder.DocBuilderException('Data source "' + key.substring(3) + '" is used in the template but not defined. Add it under Data sources.');
+            }
+        }
+    }
+
+    /** Runs each data source the template uses, in order, so a source can filter by the lists and sources above it. */
+    void loadDataSources(Integer rowLimit) {
+        for (Object d : asList(body.get('dataSources'))) {
+            Map<String, Object> def = (Map<String, Object>) d;
+            String key = listKey('ds:' + String.valueOf(def.get('name')).trim());
+            if (!childFields.containsKey(key)) {
+                continue;
+            }
+            Map<String, Object> binds = new Map<String, Object>();
+            String soql = dataSourceSoql(key, def, binds, rowLimit);
+            try {
+                lists.put(key, Database.queryWithBinds(soql, binds, AccessLevel.USER_MODE));
+            } catch (Exception e) {
+                throw new DocBuilder.DocBuilderException('Data source "' + key.substring(3) + '" could not be loaded: ' + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * The query for one data source. Object, fields and operators come from fixed lists or are checked against
+     * the schema; every compared value is a bind variable, so nothing from the record or the template is pasted
+     * into the query text.
+     */
+    String dataSourceSoql(String key, Map<String, Object> def, Map<String, Object> binds, Integer rowLimit) {
+        String label = key.substring(3);
+        String objectName;
+        try {
+            objectName = Schema.describeSObjects(new List<String>{ safe((String) def.get('object')) })[0].getName();
+        } catch (Exception e) {
+            throw new DocBuilder.DocBuilderException('Data source "' + label + '" needs an object that exists in this org.');
+        }
+        Map<String, String> fields = child(key);
+        fields.put('id', 'Id');
+        List<String> conditions = new List<String>();
+        Integer n = 0;
+        for (Object f : asList(def.get('filters'))) {
+            Map<String, Object> filter = (Map<String, Object>) f;
+            if (String.isBlank((String) filter.get('field'))) {
+                continue;
+            }
+            String field = safe((String) filter.get('field'));
+            String op = filter.get('op') == null ? 'eq' : String.valueOf(filter.get('op'));
+            if (op == 'blank' || op == 'notBlank') {
+                conditions.add(field + (op == 'blank' ? ' = null' : ' != null'));
+                continue;
+            }
+            if (!DS_OPERATORS.containsKey(op)) {
+                throw new DocBuilder.DocBuilderException('Data source "' + label + '" uses an unknown comparison: ' + op);
+            }
+            String fromKind = filter.get('from') == null ? 'value' : String.valueOf(filter.get('from'));
+            Object value;
+            if (fromKind == 'record') {
+                value = record == null ? null : resolve(record, safe((String) filter.get('recordField')));
+            } else if (fromKind == 'list') {
+                value = listValues(listKey((String) filter.get('list')), safe((String) filter.get('listField')));
+                if (op != 'in' && op != 'notIn') {
+                    op = 'in';
+                }
+            } else {
+                value = typedValue(label, objectName, field, filter.get('value'));
+            }
+            if ((op == 'in' || op == 'notIn') && !(value instanceof List<Object>) && !(value instanceof List<Id>) && !(value instanceof List<String>) && !(value instanceof List<Decimal>) && !(value instanceof List<Date>)) {
+                value = typedList(new List<Object>{ value });
+            }
+            if (op == 'contains') {
+                value = '%' + String.valueOf(value == null ? '' : value).replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%';
+            }
+            String bind = 'dsv' + n++;
+            binds.put(bind, value);
+            conditions.add(field + ' ' + DS_OPERATORS.get(op) + ' :' + bind);
+        }
+        String joiner = 'any'.equalsIgnoreCase((String) def.get('match')) ? ' OR ' : ' AND ';
+        String soql = 'SELECT ' + String.join(fields.values(), ', ') + ' FROM ' + objectName;
+        if (!conditions.isEmpty()) {
+            soql += ' WHERE ' + String.join(conditions, joiner);
+        }
+        if (String.isNotBlank((String) def.get('orderBy'))) {
+            soql += ' ORDER BY ' + safe((String) def.get('orderBy')) + ('DESC'.equalsIgnoreCase((String) def.get('orderDirection')) ? ' DESC NULLS LAST' : ' ASC NULLS LAST');
+        }
+        Integer limitRows = DS_DEFAULT_LIMIT;
+        if (def.get('limit') != null && String.isNotBlank(String.valueOf(def.get('limit')))) {
+            limitRows = Decimal.valueOf(String.valueOf(def.get('limit'))).intValue();
+        }
+        limitRows = Math.max(1, Math.min(CHILD_ROW_LIMIT, limitRows));
+        return soql + ' LIMIT ' + (rowLimit == null ? limitRows : rowLimit);
+    }
+
+    /** Every distinct value of one field across a list's rows, typed for an IN comparison. */
+    Object listValues(String listName, String field) {
+        List<Object> values = new List<Object>();
+        Set<String> seen = new Set<String>();
+        for (SObject row : lists.containsKey(listName) ? lists.get(listName) : new List<SObject>()) {
+            Object v = resolve(row, field);
+            if (v != null && seen.add(String.valueOf(v))) {
+                values.add(v);
+            }
+        }
+        return typedList(values);
+    }
+
+    /** SOQL binds an IN list only when the list has a concrete element type. */
+    static Object typedList(List<Object> values) {
+        Object first;
+        for (Object v : values) {
+            if (v != null) {
+                first = v;
+                break;
+            }
+        }
+        if (first instanceof Id) {
+            List<Id> out = new List<Id>();
+            for (Object v : values) {
+                out.add((Id) v);
+            }
+            return out;
+        }
+        if (first instanceof Decimal || first instanceof Integer || first instanceof Double || first instanceof Long) {
+            List<Decimal> out = new List<Decimal>();
+            for (Object v : values) {
+                out.add(v == null ? null : Decimal.valueOf(String.valueOf(v)));
+            }
+            return out;
+        }
+        if (first instanceof Date) {
+            List<Date> out = new List<Date>();
+            for (Object v : values) {
+                out.add((Date) v);
+            }
+            return out;
+        }
+        List<String> out = new List<String>();
+        for (Object v : values) {
+            out.add(v == null ? null : String.valueOf(v));
+        }
+        return out;
+    }
+
+    /** A typed-in filter value, converted to the field's type (dates, numbers, ticks) so it can be bound. */
+    static Object typedValue(String label, String objectName, String path, Object raw) {
+        String text = raw == null ? '' : String.valueOf(raw).trim();
+        if (text == '') {
+            return null;
+        }
+        Schema.DisplayType type = fieldType(objectName, path);
+        try {
+            if (type == Schema.DisplayType.DATE) {
+                return Date.valueOf(text);
+            }
+            if (type == Schema.DisplayType.DATETIME) {
+                return text.length() == 10 ? Datetime.newInstance(Date.valueOf(text), Time.newInstance(0, 0, 0, 0)) : Datetime.valueOf(text.replace('T', ' ').removeEnd('Z'));
+            }
+            if (type == Schema.DisplayType.CURRENCY || type == Schema.DisplayType.DOUBLE || type == Schema.DisplayType.PERCENT) {
+                return Decimal.valueOf(text);
+            }
+            if (type == Schema.DisplayType.INTEGER) {
+                return Integer.valueOf(text);
+            }
+            if (type == Schema.DisplayType.LONG) {
+                return Long.valueOf(text);
+            }
+            if (type == Schema.DisplayType.BOOLEAN) {
+                return Boolean.valueOf(text);
+            }
+        } catch (Exception e) {
+            throw new DocBuilder.DocBuilderException('Data source "' + label + '": "' + text + '" is not a valid value for ' + path + '.');
+        }
+        return text;
+    }
+
+    /** The type of a field path such as Account.Industry on the given object, or null when it cannot be found. */
+    static Schema.DisplayType fieldType(String objectName, String path) {
+        Schema.DescribeSObjectResult d = Schema.describeSObjects(new List<String>{ objectName })[0];
+        List<String> parts = path.split('\\.');
+        for (Integer i = 0; i < parts.size() - 1; i++) {
+            Schema.DescribeFieldResult lookup;
+            for (Schema.SObjectField f : d.fields.getMap().values()) {
+                Schema.DescribeFieldResult fd = f.getDescribe();
+                if (fd.getRelationshipName() != null && fd.getRelationshipName().equalsIgnoreCase(parts[i]) && !fd.getReferenceTo().isEmpty()) {
+                    lookup = fd;
+                    break;
+                }
+            }
+            if (lookup == null) {
+                return null;
+            }
+            d = lookup.getReferenceTo()[0].getDescribe();
+        }
+        Schema.SObjectField field = d.fields.getMap().get(parts[parts.size() - 1]);
+        return field == null ? null : field.getDescribe().getType();
     }
 
     String buildSoql() {
@@ -93,14 +540,14 @@ public with sharing class DocBuilderContext {
             collected = true;
         }
         for (String rel : childFields.keySet()) {
-            if (rel.contains('.')) {
+            if (rel.contains('.') && !isDataSource(rel)) {
                 // A list on a related record, e.g. Account.Contacts: we need the related record's Id first.
                 addField(parentFields, rel.substringBeforeLast('.') + '.Id');
             }
         }
         List<String> selects = new List<String>(parentFields.values());
         for (String rel : childFields.keySet()) {
-            if (!rel.contains('.')) {
+            if (!rel.contains('.') && !isDataSource(rel)) {
                 selects.add(subquery(rel, rel));
             }
         }
@@ -145,7 +592,7 @@ public with sharing class DocBuilderContext {
             Map<String, Object> signer = (Map<String, Object>) s;
             String source = (String) signer.get('source');
             if (String.isNotBlank(source)) {
-                String rel = safe(source);
+                String rel = listKey(source);
                 addField(child(rel), String.isBlank((String) signer.get('nameField')) ? 'Name' : (String) signer.get('nameField'));
                 if (String.isBlank((String) signer.get('emailField'))) {
                     throw new DocBuilder.DocBuilderException('Signers taken from ' + source + ' need an email field.');
@@ -163,7 +610,7 @@ public with sharing class DocBuilderContext {
             addRule(blk.get('showIf'), null);
             addTokens((String) blk.get('elseText'), null);
             if (type == 'table') {
-                String rel = safe((String) blk.get('source'));
+                String rel = listKey((String) blk.get('source'));
                 child(rel);
                 for (Object c : asList(blk.get('columns'))) {
                     addField(child(rel), (String) ((Map<String, Object>) c).get('field'));
@@ -175,6 +622,9 @@ public with sharing class DocBuilderContext {
                 String orderBy = (String) blk.get('orderBy');
                 if (String.isNotBlank(orderBy)) {
                     addField(child(rel), orderBy);
+                }
+                if (String.isNotBlank((String) blk.get('groupBy'))) {
+                    addField(child(rel), (String) blk.get('groupBy'));
                 }
             } else if (type == 'terms') {
                 addTokens((String) blk.get('title'), null);
@@ -199,7 +649,7 @@ public with sharing class DocBuilderContext {
                 }
                 continue;
             }
-            String rel = safe((String) calc.get('source'));
+            String rel = listKey((String) calc.get('source'));
             child(rel);
             if (calc.get('field') != null) {
                 addField(child(rel), (String) calc.get('field'));
@@ -209,6 +659,7 @@ public with sharing class DocBuilderContext {
         for (Object c : asList(body.get('conditions'))) {
             addRule(((Map<String, Object>) c).get('rule'), null);
         }
+        collectDataSources();
     }
 
     Map<String, String> child(String rel) {
@@ -230,14 +681,19 @@ public with sharing class DocBuilderContext {
         Matcher s = SECTION.matcher(text);
         while (s.find()) {
             String target = sectionTarget(s.group(1));
-            if (target != null && !target.startsWith('cond:')) {
+            if (target != null && isDataSource(target)) {
+                addDataSourceField(target);
+            } else if (target != null && !target.startsWith('cond:') && !target.startsWith('apex:')) {
                 addField(rel == null ? parentFields : child(rel), target);
             }
         }
         Matcher m = TOKEN.matcher(SECTION.matcher(text).replaceAll(''));
         while (m.find()) {
             String path = m.group(1).trim();
-            if (!path.startsWith('calc:')) {
+            if (isDataSource(path)) {
+                // {{ds:Name.Field}} prints the field from the data source's first row.
+                addDataSourceField(path);
+            } else if (!path.startsWith('calc:') && !path.startsWith('apex:')) {
                 addField(rel == null ? parentFields : child(rel), path);
             }
         }
@@ -280,7 +736,10 @@ public with sharing class DocBuilderContext {
         Boolean negate = t.toLowerCase().startsWith('not ');
         String target = sectionTarget(tag);
         Boolean result;
-        if (target.startsWith('cond:')) {
+        if (target.startsWith('apex:')) {
+            result = apexCheck(target.substring(5).trim());
+            logicLog.put(target, result);
+        } else if (target.startsWith('cond:')) {
             String name = target.substring(5).trim();
             if (!namedRules().containsKey(name.toLowerCase())) {
                 throw new DocBuilder.DocBuilderException('Condition "' + name + '" is used in text but not defined in the template.');
@@ -288,7 +747,7 @@ public with sharing class DocBuilderContext {
             Object rule = namedRules().get(name.toLowerCase());
             result = rule == null ? true : passes(rule, record, 'cond:' + name);
         } else {
-            String path = safe(target);
+            String path = isDataSource(target) ? target : safe(target);
             Object value = resolve(source, path);
             if (source === record) {
                 usedValues.put(path, value);
@@ -397,7 +856,9 @@ public with sharing class DocBuilderContext {
         }
         for (Object c : asList(((Map<String, Object>) ruleObj).get('conditions'))) {
             String field = (String) ((Map<String, Object>) c).get('field');
-            if (field != null && !field.startsWith('calc:')) {
+            if (field != null && isDataSource(field) && rel == null) {
+                addDataSourceField(field);
+            } else if (field != null && !field.startsWith('calc:') && !field.startsWith('apex:')) {
                 addField(rel == null ? parentFields : child(rel), field);
             }
         }
@@ -519,7 +980,21 @@ public with sharing class DocBuilderContext {
         return parts;
     }
 
+    /** The first row of a data source, for paths written ds:Name.Field. Null when the source has no rows. */
+    SObject firstRowOf(String path) {
+        List<SObject> rows = lists.get(path.substringBefore('.'));
+        return rows == null || rows.isEmpty() ? null : rows[0];
+    }
+
     public Object resolve(SObject source, String path) {
+        if (path != null && path.startsWith('apex:')) {
+            // {{apex:Name}} prints an Apex variable.
+            return apexValue(path.substring(5));
+        }
+        if (isDataSource(path)) {
+            SObject first = firstRowOf(path);
+            return first == null ? null : resolve(first, path.substringAfter('.'));
+        }
         List<String> parts = partsOf(source, path);
         SObject current = source;
         try {
@@ -538,6 +1013,13 @@ public with sharing class DocBuilderContext {
     }
 
     Schema.DisplayType typeOf(SObject source, String path) {
+        if (path != null && path.startsWith('apex:')) {
+            return null;
+        }
+        if (isDataSource(path)) {
+            SObject first = firstRowOf(path);
+            return first == null ? null : typeOf(first, path.substringAfter('.'));
+        }
         List<String> parts = partsOf(source, path);
         SObject current = source;
         for (Integer i = 0; i < parts.size() - 1; i++) {
@@ -583,6 +1065,19 @@ public with sharing class DocBuilderContext {
         }
         if (type == Schema.DisplayType.DOUBLE || type == Schema.DisplayType.INTEGER || type == Schema.DisplayType.LONG) {
             return applyFormat(value, 'number');
+        }
+        // Values without a field type, such as Apex variables, print by their own kind.
+        if (type == null && value instanceof Date) {
+            return ((Date) value).format();
+        }
+        if (type == null && value instanceof Datetime) {
+            return ((Datetime) value).format();
+        }
+        if (type == null && (value instanceof Decimal || value instanceof Integer || value instanceof Long || value instanceof Double)) {
+            return applyFormat(value, 'number');
+        }
+        if (value instanceof Boolean) {
+            return value == true ? 'Yes' : 'No';
         }
         return String.valueOf(value);
     }
@@ -899,8 +1394,16 @@ public with sharing class DocBuilderContext {
             String op = condition.get('op') == null ? 'eq' : (String) condition.get('op');
             String expected = condition.get('value') == null ? '' : String.valueOf(condition.get('value'));
             Boolean isCalc = field.startsWith('calc:');
-            Object actual = isCalc ? (Object) calcs.get(field.substring(5)) : resolve(source, field);
-            if (!isCalc && source === record) {
+            Boolean isApex = field.startsWith('apex:');
+            Object actual;
+            if (isCalc) {
+                actual = calcs.get(field.substring(5));
+            } else if (isApex) {
+                actual = apexValue(field.substring(5));
+            } else {
+                actual = resolve(source, field);
+            }
+            if (!isCalc && !isApex && source === record) {
                 usedValues.put(field, actual);
             }
             Boolean result = compare(actual, op, expected);
@@ -936,6 +1439,18 @@ public with sharing class DocBuilderContext {
             return o == 'ne';
         }
         String want = expected == null ? '' : expected.trim();
+        if (actual instanceof Date || actual instanceof Datetime) {
+            // Dates compare as dates (values typed as YYYY-MM-DD); a date-time compares by its day.
+            Date a = actual instanceof Date ? (Date) actual : ((Datetime) actual).date();
+            Date b;
+            try {
+                b = Date.valueOf(want.left(10));
+            } catch (Exception e) {
+                return o == 'ne';
+            }
+            Map<String, Boolean> outcomes = new Map<String, Boolean>{ 'eq' => a == b, 'ne' => a != b, 'gt' => a > b, 'ge' => a >= b, 'lt' => a < b, 'le' => a <= b };
+            return outcomes.containsKey(o) ? outcomes.get(o) : false;
+        }
         if (actual instanceof Decimal || actual instanceof Integer || actual instanceof Long || actual instanceof Double) {
             Decimal a = Decimal.valueOf(String.valueOf(actual));
             Decimal b;

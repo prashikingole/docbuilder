@@ -18,9 +18,14 @@ import listVersions from '@salesforce/apex/DocBuilderDesignerController.listVers
 import makeVersionLive from '@salesforce/apex/DocBuilderDesignerController.makeVersionLive';
 import copyVersionToDraft from '@salesforce/apex/DocBuilderDesignerController.copyVersionToDraft';
 import LightningConfirm from 'lightning/confirm';
+import listObjects from '@salesforce/apex/DocBuilderDesignerController.listObjects';
+import listVisualforcePages from '@salesforce/apex/DocBuilderDesignerController.listVisualforcePages';
+import checkContentClass from '@salesforce/apex/DocBuilderDesignerController.checkContentClass';
+import saveWatermarkImage from '@salesforce/apex/DocBuilderDesignerController.saveWatermarkImage';
+import describeApexClass from '@salesforce/apex/DocBuilderDesignerController.describeApexClass';
 
 const TOKEN = /\{\{\s*([^}|]+?)\s*(?:\|\s*([A-Za-z]+)\s*)?\}\}/g;
-const TYPE_LABELS = { heading: 'Heading', text: 'Text', table: 'Table', terms: 'Terms', image: 'Image', signature: 'Signature', pagebreak: 'Page break' };
+const TYPE_LABELS = { heading: 'Heading', text: 'Text', table: 'Table', terms: 'Terms', image: 'Image', signature: 'Signature', pagebreak: 'Page break', custom: 'Custom content' };
 const FILE_URL = '/sfc/servlet.shepherd/version/download/';
 const NOISE_LISTS = /(History|Histories|Feed|Feeds|Share|Shares|ChangeEvent|Tag|Tags)$|^(ActivityHistories|OpenActivities|AttachedContentDocuments|AttachedContentNotes|CombinedAttachments|ContentDocumentLinks|ContentDistributions|Attachments|Notes|NotesAndAttachments|Emails|EmailMessageRelations|EventRelations|TaskRelations|ProcessInstances|ProcessSteps|ProcessExceptions|RecordActions|RecordActionHistories|RecordAssociatedGroups|TopicAssignments|FeedSubscriptionsForEntity|UserRecordAccess|FlowOrchestrationWorkItems|FlowExecutionErrorEvents|NetworkActivityAudits|CollaborationGroupRecords|DuplicateRecordItems|PendingServiceRoutings|MessagingSessions|SurveySubjectEntities|ContactRequests|AIRecordInsights|AIInsightValues|ContentVersions|LookedUpFromActivities|Personas|WorkOrders|ServiceAppointments|Swarms|SwarmMembers|ConversationEntries|GptPromptEvents|AppUsageAssignments|ScorecardAssociations|AccountUserTerritory2Views)$/;
 const PAGE_SHAPES = { a4: 1.414, letter: 1.294, legal: 1.647 };
@@ -237,6 +242,13 @@ export default class DocBuilderDesigner extends LightningElement {
     async resolveListObject(source) {
         if (!source || !this.tpl) {
             return null;
+        }
+        if (source.startsWith('ds:')) {
+            const object = this.dataSourceObject(source);
+            if (object) {
+                await this.ensureObject(object);
+            }
+            return object;
         }
         const parts = source.split('.');
         let objectName = this.tpl.baseObject;
@@ -649,6 +661,7 @@ export default class DocBuilderDesigner extends LightningElement {
     }
 
     async save() {
+        await this.prepareWatermarkImages();
         const state = await saveDraft({
             templateId: this.templateId,
             name: this.name,
@@ -743,7 +756,7 @@ export default class DocBuilderDesigner extends LightningElement {
     // ---------- Right-hand panel ----------
 
     panelTab = 'settings';
-    settingsPanel = 'template';
+    settingsPanel = 'menu';
 
     get panelTabs() {
         return [
@@ -774,6 +787,9 @@ export default class DocBuilderDesigner extends LightningElement {
         }
         if (this.settingsPanel === 'versions') {
             this.loadVersions();
+        }
+        if (this.settingsPanel === 'data') {
+            this.loadObjectChoices();
         }
     }
 
@@ -1006,6 +1022,9 @@ export default class DocBuilderDesigner extends LightningElement {
 
     /** The object a direct related list holds, e.g. OpportunityLineItem for OpportunityLineItems. */
     childObjectOf(listName) {
+        if (String(listName || '').startsWith('ds:')) {
+            return this.dataSourceObject(listName);
+        }
         const info = this.tpl ? this.infoFor(this.tpl.baseObject) : null;
         const child = info && listName ? info.children.find((c) => c.name === listName) : null;
         return child ? child.childObject : null;
@@ -1645,10 +1664,13 @@ export default class DocBuilderDesigner extends LightningElement {
         if (!info) {
             return [];
         }
-        return info.children
-            .filter((c) => !NOISE_LISTS.test(c.name))
-            .map((c) => ({ label: `${c.label || c.name} (${c.name})`, value: c.name }))
-            .sort((a, b) => a.label.localeCompare(b.label));
+        return [
+            ...this.dataSourceOptions,
+            ...info.children
+                .filter((c) => !NOISE_LISTS.test(c.name))
+                .map((c) => ({ label: `${c.label || c.name} (${c.name})`, value: c.name }))
+                .sort((a, b) => a.label.localeCompare(b.label))
+        ];
     }
 
     updateSigner(index, change) {
@@ -1771,8 +1793,471 @@ export default class DocBuilderDesigner extends LightningElement {
     }
 
     get panelTitle() {
-        const titles = { template: 'Name and languages', page: 'Page setup', headerfooter: 'Header, footer, watermark', calc: 'Calculated values', signers: 'Signers', conditions: 'Conditions', messages: 'Email and signing wording', versions: 'Versions' };
+        const titles = {
+            menu: 'Template settings',
+            template: 'Name and languages',
+            page: 'Page setup',
+            headerfooter: 'Header, footer, watermark',
+            calc: 'Calculated values',
+            data: 'Data sources',
+            signers: 'Signers',
+            conditions: 'Conditions',
+            messages: 'Email and signing wording',
+            versions: 'Versions'
+        };
         return titles[this.settingsPanel] || 'Template';
+    }
+
+    get isPanelData() {
+        return this.settingsPanel === 'data';
+    }
+
+    get isPanelMenu() {
+        return this.settingsPanel === 'menu';
+    }
+
+    /** The template-wide sections, each with a one-line summary, listed in the right-hand panel. */
+    get settingsMenu() {
+        const count = (n, one, many) => (n ? `${n} ${n === 1 ? one : many}` : 'None yet');
+        const edges = [this.hasHeader ? 'header' : null, this.hasFooter ? 'footer' : null, this.watermark.text ? 'watermark' : null].filter((x) => x);
+        const messages = this.body.messages && Object.values(this.body.messages).some((v) => v);
+        const items = [
+            { panel: 'page', label: 'Page setup', detail: this.pageLabel },
+            { panel: 'headerfooter', label: 'Header, footer, watermark', detail: edges.length ? edges.join(', ').replace(/^./, (c) => c.toUpperCase()) : 'None yet' },
+            { panel: 'data', label: 'Data sources', detail: count((this.body.dataSources || []).length, 'source', 'sources') },
+            { panel: 'calc', label: 'Calculated values', detail: count(this.body.calculations.length, 'value', 'values') },
+            { panel: 'conditions', label: 'Conditions', detail: count(this.conditionRows.length, 'condition', 'conditions') },
+            { panel: 'signers', label: 'Signers', detail: count(this.body.signers.length, 'signer', 'signers') },
+            { panel: 'messages', label: 'Emails', detail: messages ? 'Own wording' : 'Default wording' },
+            { panel: 'template', label: 'Name and languages', detail: this.languages ? 'Languages: ' + this.languages : this.name },
+            { panel: 'versions', label: 'Versions', detail: this.versionChip }
+        ];
+        return items;
+    }
+
+    handleSettingsMenu() {
+        this.settingsPanel = 'menu';
+    }
+
+    /** From a selected block back to the template's own settings. */
+    handleBackToTemplate() {
+        this.handleDeselect();
+        this.settingsPanel = 'menu';
+        this.panelTab = 'settings';
+    }
+
+    // ---------- Data sources ----------
+
+    objectChoices;
+
+    get dataSources() {
+        return this.body.dataSources || [];
+    }
+
+    /** The object a data source (ds:Name) reads, or null. */
+    dataSourceObject(key) {
+        const name = String(key || '').substring(3);
+        const ds = this.dataSources.find((d) => d.name === name);
+        return ds && ds.object ? ds.object : null;
+    }
+
+    get dataSourceOptions() {
+        return this.dataSources.filter((d) => d.name && d.object).map((d) => ({ label: `Data source: ${d.name} (${d.object})`, value: 'ds:' + d.name }));
+    }
+
+    async loadObjectChoices() {
+        if (this.objectChoices) {
+            return;
+        }
+        try {
+            this.objectChoices = await listObjects();
+        } catch (e) {
+            this.objectChoices = [];
+            this.toast('Objects could not be listed', this.messageOf(e), 'error');
+        }
+    }
+
+    get dsOpOptions() {
+        return [
+            { label: 'equals', value: 'eq' },
+            { label: 'does not equal', value: 'ne' },
+            { label: 'is greater than', value: 'gt' },
+            { label: 'is at least', value: 'ge' },
+            { label: 'is less than', value: 'lt' },
+            { label: 'is at most', value: 'le' },
+            { label: 'contains', value: 'contains' },
+            { label: 'is blank', value: 'blank' },
+            { label: 'is not blank', value: 'notBlank' }
+        ];
+    }
+
+    get dsListOpOptions() {
+        return [
+            { label: 'is one of', value: 'in' },
+            { label: 'is not one of', value: 'notIn' }
+        ];
+    }
+
+    get dsFromOptions() {
+        return [
+            { label: 'A value I type', value: 'value' },
+            { label: 'A field on this record', value: 'record' },
+            { label: 'The values in a list', value: 'list' }
+        ];
+    }
+
+    get dsMatchOptions() {
+        return [
+            { label: 'All filters', value: 'all' },
+            { label: 'Any filter', value: 'any' }
+        ];
+    }
+
+    get dsDirectionOptions() {
+        return [
+            { label: 'Ascending', value: 'ASC' },
+            { label: 'Descending', value: 'DESC' }
+        ];
+    }
+
+    get canAddDataSource() {
+        return this.dataSources.length < 10;
+    }
+
+    /** The object a list holds: a data source, or a related list of the record. */
+    listObjectOf(list) {
+        return String(list || '').startsWith('ds:') ? this.dataSourceObject(list) : this.childObjectOf(list);
+    }
+
+    get dataSourceRows() {
+        const base = this.tpl ? this.infoFor(this.tpl.baseObject) : null;
+        const lists = base
+            ? base.children.filter((c) => !NOISE_LISTS.test(c.name)).map((c) => ({ label: `${c.label || c.name} (${c.name})`, value: c.name })).sort((a, b) => a.label.localeCompare(b.label))
+            : [];
+        return this.dataSources.map((d, index) => {
+            // A filter can use the lists of the record and the data sources above this one, which load first.
+            const earlier = this.dataSources
+                .slice(0, index)
+                .filter((x) => x.name && x.object)
+                .map((x) => ({ label: `Data source: ${x.name}`, value: 'ds:' + x.name }));
+            const listChoices = [...earlier, ...lists];
+            const objectOptions = (this.objectChoices || []).slice();
+            if (d.object && !objectOptions.some((o) => o.value === d.object)) {
+                objectOptions.unshift({ label: d.object, value: d.object });
+            }
+            return {
+                index,
+                key: 'ds' + index,
+                num: index + 1,
+                name: d.name || '',
+                object: d.object || '',
+                hasObject: !!d.object,
+                objectOptions,
+                match: d.match || 'all',
+                orderBy: d.orderBy || '',
+                orderDirection: d.orderDirection || 'ASC',
+                limit: d.limit == null ? 200 : d.limit,
+                usage: d.name ? `{{ds:${d.name}.FieldName}}` : '',
+                hasFilters: (d.filters || []).length > 1,
+                filters: (d.filters || []).map((f, findex) => {
+                    const from = f.from || 'value';
+                    const op = f.op || (from === 'list' ? 'in' : 'eq');
+                    return {
+                        findex,
+                        key: index + '-' + findex,
+                        field: f.field || '',
+                        op,
+                        opOptions: from === 'list' ? this.dsListOpOptions : this.dsOpOptions,
+                        from,
+                        value: f.value == null ? '' : String(f.value),
+                        recordField: f.recordField || '',
+                        list: f.list || '',
+                        listField: f.listField || '',
+                        listObject: f.list ? this.listObjectOf(f.list) : null,
+                        listChoices,
+                        needsValue: op !== 'blank' && op !== 'notBlank',
+                        isValue: from === 'value' && op !== 'blank' && op !== 'notBlank',
+                        isRecord: from === 'record' && op !== 'blank' && op !== 'notBlank',
+                        isList: from === 'list'
+                    };
+                })
+            };
+        });
+    }
+
+    handleAddDataSource() {
+        this.loadObjectChoices();
+        this.mutate((body) => {
+            body.dataSources = body.dataSources || [];
+            if (body.dataSources.length >= 10) {
+                return;
+            }
+            let n = body.dataSources.length + 1;
+            while (body.dataSources.some((d) => d.name === 'Source' + n)) {
+                n++;
+            }
+            body.dataSources.push({ name: 'Source' + n, object: '', filters: [], limit: 200 });
+        });
+    }
+
+    handleRemoveDataSource(event) {
+        const index = Number(event.currentTarget.dataset.index);
+        this.mutate((body) => {
+            if (body.dataSources) {
+                body.dataSources.splice(index, 1);
+            }
+        });
+    }
+
+    handleDsProp(event) {
+        const index = Number(event.target.dataset.index);
+        const prop = event.target.dataset.prop;
+        let value = event.detail.value;
+        if (prop === 'name') {
+            // Names are used as ds:Name in the template, so only letters, digits and underscores.
+            value = String(value || '').replace(/[^A-Za-z0-9_]/g, '').replace(/^[^A-Za-z]+/, '').slice(0, 40);
+        }
+        const old = this.dataSources[index] ? this.dataSources[index].name : null;
+        this.mutate((body) => {
+            const ds = body.dataSources && body.dataSources[index];
+            if (!ds) {
+                return;
+            }
+            if (value === '' || value === null || value === undefined) {
+                delete ds[prop];
+            } else {
+                ds[prop] = prop === 'limit' ? Number(value) : value;
+            }
+            if (prop === 'object') {
+                // Filters and sorting name fields of the old object.
+                ds.filters = [];
+                delete ds.orderBy;
+            }
+        });
+        if (prop === 'name' && old && value && old !== value) {
+            this.renameDataSource(old, value);
+        }
+    }
+
+    /** Keeps tables, totals, signers and {{ds:Name.Field}} working when a data source is renamed. */
+    renameDataSource(from, to) {
+        const text = JSON.stringify(this.body)
+            .split('"ds:' + from + '"')
+            .join('"ds:' + to + '"')
+            .split('ds:' + from + '.')
+            .join('ds:' + to + '.');
+        this.body = JSON.parse(text);
+        this.dirty = true;
+    }
+
+    handleAddDsFilter(event) {
+        const index = Number(event.currentTarget.dataset.index);
+        this.mutate((body) => {
+            const ds = body.dataSources && body.dataSources[index];
+            if (ds) {
+                ds.filters = ds.filters || [];
+                ds.filters.push({ field: '', op: 'eq', from: 'value', value: '' });
+            }
+        });
+    }
+
+    handleRemoveDsFilter(event) {
+        const index = Number(event.currentTarget.dataset.index);
+        const findex = Number(event.currentTarget.dataset.findex);
+        this.mutate((body) => {
+            const ds = body.dataSources && body.dataSources[index];
+            if (ds && ds.filters) {
+                ds.filters.splice(findex, 1);
+            }
+        });
+    }
+
+    handleDsFilter(event) {
+        const index = Number(event.target.dataset.index);
+        const findex = Number(event.target.dataset.findex);
+        const prop = event.target.dataset.prop;
+        const value = event.detail.value;
+        this.mutate((body) => {
+            const ds = body.dataSources && body.dataSources[index];
+            const f = ds && ds.filters ? ds.filters[findex] : null;
+            if (!f) {
+                return;
+            }
+            f[prop] = value;
+            if (prop === 'from') {
+                delete f.value;
+                delete f.recordField;
+                delete f.list;
+                delete f.listField;
+                if (value === 'list') {
+                    f.op = 'in';
+                } else if (f.op === 'in' || f.op === 'notIn') {
+                    f.op = 'eq';
+                }
+            }
+            if (prop === 'list') {
+                delete f.listField;
+            }
+        });
+    }
+
+    get falseValue() {
+        return false;
+    }
+
+    handleClearGroup() {
+        this.mutate((body) => {
+            const block = this.blockIn(body);
+            if (block) {
+                delete block.groupBy;
+                delete block.groupTotals;
+            }
+        });
+    }
+
+    // ---------- Apex checks ----------
+
+    checkResults = {};
+
+    get checkSettingsHint() {
+        return 'Optional, e.g. {"priority":"High"}';
+    }
+
+    get apexCheckExample() {
+        return '{{apex:Name}}';
+    }
+
+    /** Apex variables for rule editors: name and type, so the right kind of value is offered. */
+    get apexCheckNames() {
+        return (this.body.apexChecks || []).filter((c) => c.name).map((c) => ({ name: c.name, type: c.type || 'Boolean' }));
+    }
+
+    get apexCheckRows() {
+        return (this.body.apexChecks || []).map((c, index) => {
+            const result = this.checkResults[index];
+            const offered = result && result.variables ? result.variables : [];
+            const variableOptions = offered.map((v) => ({ label: `${v.value} (${v.label})`, value: v.value }));
+            if (c.variable && !variableOptions.some((o) => o.value === c.variable)) {
+                variableOptions.unshift({ label: c.variable + (c.type ? ` (${c.type})` : ''), value: c.variable });
+            }
+            return {
+                ...c,
+                index,
+                variableOptions,
+                // A values class offers a list to pick from; a yes/no class has nothing to pick.
+                hasValues: (result && result.kind === 'values') || !!c.variable,
+                typeLabel: c.type ? `Type: ${c.type}` : '',
+                usage: c.name ? `{{apex:${c.name}}} prints it; {{#if apex:${c.name}}} … {{/if}} shows text only when it is yes, not 0 and not empty` : '',
+                result: result ? result.text : '',
+                resultCls: result && result.ok ? 'test-ok' : 'test-bad'
+            };
+        });
+    }
+
+    async handleCheckCondition(event) {
+        const index = Number(event.currentTarget.dataset.index);
+        const check = (this.body.apexChecks || [])[index];
+        if (!check) {
+            return;
+        }
+        await this.run(async () => {
+            const info = await describeApexClass({ className: check.className || '' });
+            let text;
+            if (!info.ok) {
+                text = info.message;
+            } else if (info.kind === 'check') {
+                text = `${check.className} answers yes or no.`;
+            } else {
+                text = `${check.className} offers ${info.variables.length} value${info.variables.length === 1 ? '' : 's'}. Choose one below.`;
+            }
+            this.checkResults = { ...this.checkResults, [index]: { ok: info.ok, text, kind: info.kind, variables: info.variables || [] } };
+            if (info.ok && info.kind === 'check') {
+                this.mutate((body) => {
+                    const def = body.apexChecks[index];
+                    delete def.variable;
+                    def.type = 'Boolean';
+                });
+            }
+        });
+    }
+
+    handleApexVariable(event) {
+        const index = Number(event.target.dataset.index);
+        const value = event.detail.value;
+        const result = this.checkResults[index];
+        const found = result && result.variables ? result.variables.find((v) => v.value === value) : null;
+        this.mutate((body) => {
+            const def = body.apexChecks && body.apexChecks[index];
+            if (!def) {
+                return;
+            }
+            def.variable = value;
+            def.type = found ? found.label : def.type || 'Text';
+            if (!def.name || /^Check\d+$/.test(def.name)) {
+                // Name it after the value unless the admin already named it.
+                def.name = value.replace(/[^A-Za-z0-9_]/g, '').slice(0, 40);
+            }
+        });
+    }
+
+    // ---------- Custom content blocks ----------
+
+    vfPages;
+    classCheck;
+
+    get customSourceOptions() {
+        return [
+            { label: 'An Apex class', value: 'apex' },
+            { label: 'A Visualforce page', value: 'visualforce' }
+        ];
+    }
+
+    get selIsCustom() {
+        return !!this.sel && this.sel.type === 'custom';
+    }
+
+    get selCustomIsVf() {
+        return this.selIsCustom && this.sel.source === 'visualforce';
+    }
+
+    get selCustomIsApex() {
+        return this.selIsCustom && this.sel.source !== 'visualforce';
+    }
+
+    get vfPageOptions() {
+        const options = (this.vfPages || []).slice();
+        const current = this.sel && this.sel.page;
+        if (current && !options.some((o) => o.value === current)) {
+            options.unshift({ label: current, value: current });
+        }
+        return options;
+    }
+
+    get noVfPages() {
+        return Array.isArray(this.vfPages) && this.vfPages.length === 0;
+    }
+
+    async loadVfPages() {
+        if (this.vfPages) {
+            return;
+        }
+        try {
+            this.vfPages = await listVisualforcePages();
+        } catch (e) {
+            this.vfPages = [];
+        }
+    }
+
+    get classCheckCls() {
+        return this.classCheck && this.classCheck.ok ? 'test-ok' : 'test-bad';
+    }
+
+    async handleCheckClass() {
+        const className = this.sel ? this.sel.className : '';
+        await this.run(async () => {
+            const problem = await checkContentClass({ className });
+            this.classCheck = problem ? { ok: false, text: problem } : { ok: true, text: `${className} can be used. Preview with a record to see its content.` };
+        });
     }
 
     // ---------- Canvas ----------
@@ -1818,6 +2303,13 @@ export default class DocBuilderDesigner extends LightningElement {
                 isTable: type === 'table',
                 isTerms: type === 'terms',
                 isBreak: type === 'pagebreak',
+                isCustom: type === 'custom',
+                customLabel:
+                    type === 'custom'
+                        ? b.source === 'visualforce'
+                            ? 'Visualforce page: ' + (b.page || 'not chosen yet')
+                            : 'Apex class: ' + (b.className || 'not chosen yet')
+                        : '',
                 textCls: 'content' + (b.align ? ' align-' + b.align : '') + (type === 'heading' ? ' heading-' + (b.level || 1) : ''),
                 segs: this.segments(b.text),
                 empty: (type === 'heading' || type === 'text') && !b.text,
@@ -1859,6 +2351,10 @@ export default class DocBuilderDesigner extends LightningElement {
     }
 
     handleBlockKey(event) {
+        if (event.key === 'Escape') {
+            this.handleBackToTemplate();
+            return;
+        }
         if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
             this.select(event.currentTarget.dataset.id);
@@ -1875,6 +2371,10 @@ export default class DocBuilderDesigner extends LightningElement {
         this.focus = { prop: 'text' };
         const block = this.body.blocks.find((b) => b.id === id);
         this.tableObject = undefined;
+        this.classCheck = undefined;
+        if (block && block.type === 'custom') {
+            this.loadVfPages();
+        }
         if (block && block.type === 'table' && block.source) {
             try {
                 this.tableObject = await this.resolveListObject(block.source);
@@ -1916,6 +2416,8 @@ export default class DocBuilderDesigner extends LightningElement {
             block.width = 200;
         } else if (type === 'signature') {
             block.showDate = true;
+        } else if (type === 'custom') {
+            block.source = block.source || 'visualforce';
         }
         const after = this.selectedId;
         this.mutate((body) => {
@@ -2150,6 +2652,98 @@ export default class DocBuilderDesigner extends LightningElement {
         });
     }
 
+    get watermarkDirectionOptions() {
+        return [
+            { label: 'Across the page', value: 'across' },
+            { label: 'Diagonal', value: 'diagonal' }
+        ];
+    }
+
+    get watermarkSizeOptions() {
+        return [
+            { label: 'Fit the page', value: 'fit' },
+            { label: 'Large', value: 'large' },
+            { label: 'Medium', value: 'medium' },
+            { label: 'Small', value: 'small' }
+        ];
+    }
+
+    get watermarkShadeOptions() {
+        return [
+            { label: 'Light', value: 'light' },
+            { label: 'Medium', value: 'medium' },
+            { label: 'Dark', value: 'dark' }
+        ];
+    }
+
+    get watermarkDirection() {
+        return this.watermark.direction || 'across';
+    }
+
+    get watermarkSize() {
+        return this.watermark.size || 'fit';
+    }
+
+    get watermarkShade() {
+        return this.watermark.shade || 'light';
+    }
+
+    get watermarkDiagonalWithFields() {
+        return this.watermarkDirection === 'diagonal' && /\{\{/.test(this.watermark.text || '');
+    }
+
+    /** The words drawn at 45 degrees on a transparent square, as base64 PNG; the PDF engine cannot rotate text. */
+    drawWatermark(text, shade) {
+        const side = 1200;
+        const canvas = document.createElement('canvas');
+        canvas.width = side;
+        canvas.height = side;
+        const g = canvas.getContext('2d');
+        g.translate(side / 2, side / 2);
+        g.rotate(-Math.PI / 4);
+        // Same colours as the across-the-page watermark in the PDF.
+        g.fillStyle = { light: '#E9EBF0', medium: '#D3D8E1', dark: '#AEB5C2' }[shade] || '#E9EBF0';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        let points = 300;
+        const fits = () => {
+            g.font = `bold ${points}px Helvetica, Arial, sans-serif`;
+            return g.measureText(text).width <= side * Math.SQRT2 * 0.8;
+        };
+        while (!fits() && points > 24) {
+            points -= 6;
+        }
+        g.fillText(text, 0, 0);
+        return canvas.toDataURL('image/png').split(',')[1];
+    }
+
+    /**
+     * Before saving: when the watermark is diagonal, draws and saves its image (and the DRAFT image) if the
+     * text or shade changed since they were last drawn. Fields cannot be drawn ahead, so such text prints across.
+     */
+    async prepareWatermarkImages() {
+        const mark = this.body.page && this.body.page.watermark;
+        if (!mark || mark.direction !== 'diagonal') {
+            return;
+        }
+        const shade = mark.shade || 'light';
+        const staticText = mark.text && !/\{\{/.test(mark.text) ? mark.text : '';
+        const key = staticText + '|' + shade;
+        if (mark.imageKey === key && mark.draftImageId && (!staticText || mark.imageId)) {
+            return;
+        }
+        const body = JSON.parse(JSON.stringify(this.body));
+        const target = body.page.watermark;
+        target.draftImageId = await saveWatermarkImage({ templateId: this.templateId, base64Png: this.drawWatermark('DRAFT', shade) });
+        if (staticText) {
+            target.imageId = await saveWatermarkImage({ templateId: this.templateId, base64Png: this.drawWatermark(staticText, shade) });
+        } else {
+            delete target.imageId;
+        }
+        target.imageKey = key;
+        this.body = body;
+    }
+
     handleWatermarkRule(event) {
         const rule = event.detail.rule;
         this.mutate((body) => {
@@ -2268,6 +2862,10 @@ export default class DocBuilderDesigner extends LightningElement {
         if (listName === 'calculations') {
             return body.calculations;
         }
+        if (listName === 'apexChecks') {
+            body.apexChecks = body.apexChecks || [];
+            return body.apexChecks;
+        }
         const block = this.blockIn(body);
         if (!block) {
             return null;
@@ -2332,7 +2930,8 @@ export default class DocBuilderDesigner extends LightningElement {
             items: { id: this.uid(), text: '' },
             calculations: { name: '', type: 'count', source: '' },
             signers: { role: 'Signer ' + ((this.body.signers || []).length + 1), mode: 'person', name: '', email: '' },
-            conditions: { name: 'Condition' + ((this.body.conditions || []).length + 1), rule: null }
+            conditions: { name: 'Condition' + ((this.body.conditions || []).length + 1), rule: null },
+            apexChecks: { name: 'Check' + ((this.body.apexChecks || []).length + 1), className: (this.body.apexChecks || []).length ? this.body.apexChecks[this.body.apexChecks.length - 1].className : '' }
         };
         this.mutate((body) => {
             const rows = this.listOf(body, list);
@@ -2355,9 +2954,12 @@ export default class DocBuilderDesigner extends LightningElement {
 
     get calcRows() {
         const base = this.tpl ? this.infoFor(this.tpl.baseObject) : null;
-        const lists = base
-            ? base.children.filter((ch) => !NOISE_LISTS.test(ch.name)).map((ch) => ({ label: `${ch.label || ch.name} (${ch.name})`, value: ch.name })).sort((a, b) => a.label.localeCompare(b.label))
-            : [];
+        const lists = [
+            ...this.dataSourceOptions,
+            ...(base
+                ? base.children.filter((ch) => !NOISE_LISTS.test(ch.name)).map((ch) => ({ label: `${ch.label || ch.name} (${ch.name})`, value: ch.name })).sort((a, b) => a.label.localeCompare(b.label))
+                : [])
+        ];
         return this.body.calculations.map((c, index) => {
             const isFormula = c.type === 'formula';
             const childObject = isFormula ? null : this.childObjectOf(c.source);
@@ -2748,8 +3350,9 @@ export default class DocBuilderDesigner extends LightningElement {
 
     get sourceOptions() {
         const info = this.tpl ? this.infoFor(this.tpl.baseObject) : null;
-        const options = info ? info.children.map((c) => ({ label: `${c.name} (${c.childObject})`, value: c.name })) : [];
-        options.sort((a, b) => a.label.localeCompare(b.label));
+        const children = info ? info.children.map((c) => ({ label: `${c.name} (${c.childObject})`, value: c.name })) : [];
+        children.sort((a, b) => a.label.localeCompare(b.label));
+        const options = [...this.dataSourceOptions, ...children];
         const current = this.sel && this.sel.source;
         if (current && !options.some((o) => o.value === current)) {
             options.unshift({ label: current, value: current });
@@ -2841,8 +3444,36 @@ export default class DocBuilderDesigner extends LightningElement {
         return this.pickerLookups.length > 0;
     }
 
+    /** Inside a data source, its own related lists cannot be used: data sources do not load child lists. */
+    get inDataSource() {
+        return this.pickerPath.length > 0 && String(this.pickerPath[0].rel).startsWith('ds:');
+    }
+
+    get pickerDataSources() {
+        if (this.selIsTable || this.pickerPath.length) {
+            return [];
+        }
+        return this.dataSources.filter((d) => d.name && d.object).map((d) => ({ key: d.name, label: d.name, detail: d.object, rel: 'ds:' + d.name, object: d.object, openLabel: 'Data source ' + d.name }));
+    }
+
+    /** Apex variables, inserted into text as {{apex:Name}} (not offered as table columns). */
+    get pickerApexVariables() {
+        if (this.selIsTable || this.pickerPath.length) {
+            return [];
+        }
+        return this.apexCheckNames.map((v) => ({ key: v.name, label: v.name, type: v.type, path: 'apex:' + v.name }));
+    }
+
+    get hasPickerApexVariables() {
+        return this.pickerApexVariables.length > 0;
+    }
+
+    get hasPickerDataSources() {
+        return this.pickerDataSources.length > 0;
+    }
+
     get pickerLists() {
-        if (this.selIsTable || this.pickerPath.length > 1) {
+        if (this.selIsTable || this.pickerPath.length > 1 || this.inDataSource) {
             return [];
         }
         const info = this.infoFor(this.pickerObject);
@@ -2864,7 +3495,7 @@ export default class DocBuilderDesigner extends LightningElement {
     }
 
     get showListSection() {
-        if (this.selIsTable || this.pickerPath.length > 1) {
+        if (this.selIsTable || this.pickerPath.length > 1 || this.inDataSource) {
             return false;
         }
         const info = this.infoFor(this.pickerObject);

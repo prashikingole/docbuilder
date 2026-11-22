@@ -40,6 +40,7 @@
                 </div>
                 <div class="top-actions">
                     <span class="saved"><span class={savedDotCls} aria-hidden="true"></span>{savedLabel}</span>
+                    <button type="button" class="btn" title="Check that every field this template uses exists and is readable" onclick={handleCheck}>Check fields</button>
                     <button type="button" class="btn" onclick={handleSave}>Save draft</button>
                     <button type="button" class="btn primary" onclick={handleActivate}>Activate</button>
                 </div>
@@ -110,30 +111,14 @@
                             <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="2 2.5"><path d="M2 8h12"></path></svg>
                             Break
                         </button>
+                        <button type="button" class="rail-btn" data-type="custom" title="Content from a Visualforce page or an Apex class" onclick={handleAddBlock}>
+                            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 4.5L2 8l3.5 3.5M10.5 4.5L14 8l-3.5 3.5"></path></svg>
+                            Custom
+                        </button>
                     </nav>
 
                     <!-- Page -->
                     <main class="db-stage">
-                        <!-- Dock: template-wide settings, kept at the top of the page while scrolling -->
-                        <div class="db-dock" role="group" aria-label="Template settings">
-                            <button type="button" class="dock-btn" data-panel="page" onclick={handleDock}>{pageLabel}</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" data-panel="headerfooter" onclick={handleDock}>Header, footer, watermark</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" data-panel="calc" onclick={handleDock}>Calculated values</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" data-panel="conditions" onclick={handleDock}>Conditions</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" data-panel="signers" onclick={handleDock}>Signers</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" data-panel="messages" onclick={handleDock}>Emails</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" data-panel="template" onclick={handleDock}>Name and languages</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" data-panel="versions" onclick={handleDock}>Versions</button>
-                            <span class="dock-sep" aria-hidden="true"></span>
-                            <button type="button" class="dock-btn" onclick={handleCheck}><span class="dot" aria-hidden="true"></span>Check fields</button>
-                        </div>
                         <div class="page" style={pageStyle}>
                             <template lwc:if={hasHeader}>
                                 <div class="page-edge page-header">
@@ -181,6 +166,9 @@
 
                                     <template lwc:if={b.isBreak}>
                                         <div class="break">Page break</div>
+                                    </template>
+                                    <template lwc:if={b.isCustom}>
+                                        <div class="custom-box">{b.customLabel}<span class="hint">Its content appears in Preview and in the PDF.</span></div>
                                     </template>
                                     <template lwc:if={b.empty}>
                                         <div class="hint">Empty. Type in Settings, or open Fields and click a field.</div>
@@ -321,6 +309,7 @@
                         <!-- Settings -->
                         <template lwc:if={showSettings}>
                             <template lwc:if={sel}>
+                                <button type="button" class="link-btn back-link" title="Deselect the block (Esc)" onclick={handleBackToTemplate}>‹ Template settings</button>
                                 <div class="panel-title">
                                     <span class="eyebrow">Selected</span>
                                     <h2>{selLabel} block</h2>
@@ -338,6 +327,22 @@
                                     </template>
                                     <lightning-file-upload label="Upload an image" name="blockImage" accept={imageFormats} record-id={templateId} onuploadfinished={handleImageUpload}></lightning-file-upload>
                                     <lightning-input type="number" label="Width in pixels" min="16" max="1000" value={sel.width} data-prop="width" onchange={handleProp}></lightning-input>
+                                    <lightning-combobox label="Alignment" options={alignOptions} value={sel.align} data-prop="align" onchange={handleProp}></lightning-combobox>
+                                </template>
+                                <template lwc:if={selIsCustom}>
+                                    <lightning-combobox label="Content from" options={customSourceOptions} value={sel.source} data-prop="source" onchange={handleProp}></lightning-combobox>
+                                    <template lwc:if={selCustomIsVf}>
+                                        <lightning-combobox label="Visualforce page" placeholder="Choose a page" options={vfPageOptions} value={sel.page} data-prop="page" onchange={handleProp}></lightning-combobox>
+                                        <template lwc:if={noVfPages}><p class="hint">There are no Visualforce pages in this org yet.</p></template>
+                                        <p class="hint">The page is opened for the record (as ?id=the record's Id) and its body is printed here. Build it without renderAs, using simple tables and inline styles. Scripts and forms are removed. Users need access to the page.</p>
+                                    </template>
+                                    <template lwc:if={selCustomIsApex}>
+                                        <lightning-input type="text" label="Apex class" placeholder="e.g. AcmeWarrantyTable" value={sel.className} data-prop="className" onchange={handleProp}></lightning-input>
+                                        <button type="button" class="btn small" onclick={handleCheckClass}>Check the class</button>
+                                        <template lwc:if={classCheck}><p class={classCheckCls}>{classCheck.text}</p></template>
+                                        <lightning-textarea label="Settings for the class" placeholder="Optional, e.g. JSON the class reads" value={sel.settings} data-prop="settings" onchange={handleProp}></lightning-textarea>
+                                        <p class="hint">A developer writes a class that implements DocBuilderContentProvider and returns HTML for the record. See the developer guide.</p>
+                                    </template>
                                     <lightning-combobox label="Alignment" options={alignOptions} value={sel.align} data-prop="align" onchange={handleProp}></lightning-combobox>
                                 </template>
                                 <template lwc:if={selIsSignature}>
@@ -363,7 +368,7 @@
                                             <lightning-textarea label="Text in this part" value={partView.ifText} onchange={handlePartText}></lightning-textarea>
                                             <p class="part-label">Print it only when</p>
                                             <template lwc:if={partView.sharedHint}><p class="hint">{partView.sharedHint}</p></template>
-                                            <c-doc-builder-rule rule={partView.rule} object-name={baseObjectName} calc-names={calcNameList} onrulechange={handlePartRule}></c-doc-builder-rule>
+                                            <c-doc-builder-rule apex-checks={apexCheckNames} rule={partView.rule} object-name={baseObjectName} calc-names={calcNameList} onrulechange={handlePartRule}></c-doc-builder-rule>
                                             <lightning-textarea label="Otherwise print (optional)" value={partView.elseText} onchange={handlePartElse}></lightning-textarea>
                                             <div class="row-line wrap">
                                                 <button type="button" class="btn small" onclick={handlePartUnwrap}>Always print it</button>
@@ -422,14 +427,14 @@
                                             ></lightning-combobox>
                                             <template lwc:if={c.showRule}>
                                                 <p class="hint">Show the column only if</p>
-                                                <c-doc-builder-rule rule={c.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="column" data-index={c.index} onrulechange={handleRule}></c-doc-builder-rule>
+                                                <c-doc-builder-rule apex-checks={apexCheckNames} rule={c.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="column" data-index={c.index} onrulechange={handleRule}></c-doc-builder-rule>
                                             </template>
                                         </div>
                                     </template>
                                     <button type="button" class="link-btn" data-tab="fields" onclick={handlePanelTab}>Add columns from the field list</button>
 
                                     <h3>Which rows to include</h3>
-                                    <c-doc-builder-rule rule={sel.rowFilter} object-name={tableObject} data-target="rowFilter" onrulechange={handleRule}></c-doc-builder-rule>
+                                    <c-doc-builder-rule apex-checks={apexCheckNames} rule={sel.rowFilter} object-name={tableObject} data-target="rowFilter" onrulechange={handleRule}></c-doc-builder-rule>
 
                                     <h3>Sorting</h3>
                                     <div class="row-line">
@@ -441,6 +446,16 @@
                                         </template>
                                         <lightning-combobox label="Direction" options={directionOptions} value={sel.orderDirection} data-prop="orderDirection" onchange={handleProp}></lightning-combobox>
                                     </div>
+
+                                    <h3>Group rows</h3>
+                                    <template lwc:if={tableObject}>
+                                        <c-doc-builder-field-picker object-name={tableObject} value={sel.groupBy} label="Group rows by" variant="standard" allow-skip={falseValue} data-prop="groupBy" onchange={handleProp}></c-doc-builder-field-picker>
+                                        <template lwc:if={sel.groupBy}>
+                                            <button type="button" class="link-btn" data-prop="groupBy" onclick={handleClearGroup}>Don't group</button>
+                                            <lightning-input type="checkbox" label="Show the summary rows for each group too" checked={sel.groupTotals} data-prop="groupTotals" onchange={handleProp}></lightning-input>
+                                        </template>
+                                        <p class="hint">Each group gets a heading row, for example line items grouped by Quote › Name when the rows come from a data source over several quotes. Groups follow the table's sort order, so sort by the same field.</p>
+                                    </template>
 
                                     <h3>Summary rows</h3>
                                     <template for:each={sel.totals} for:item="t">
@@ -468,7 +483,7 @@
                                                 <lightning-button-icon icon-name="utility:delete" alternative-text="Remove clause" class="row-remove" data-list="items" data-index={i.index} onclick={handleRemoveRow}></lightning-button-icon>
                                             </div>
                                             <p class="hint">Print this clause only if</p>
-                                            <c-doc-builder-rule rule={i.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="item" data-index={i.index} onrulechange={handleRule}></c-doc-builder-rule>
+                                            <c-doc-builder-rule apex-checks={apexCheckNames} rule={i.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="item" data-index={i.index} onrulechange={handleRule}></c-doc-builder-rule>
                                         </div>
                                     </template>
                                     <button type="button" class="btn small" data-list="items" onclick={handleAddRow}>Add clause</button>
@@ -496,7 +511,7 @@
                                 <template lwc:if={selHasRule}>
                                     <h3>Visibility: show this block only if</h3>
                                     <div class="soft">
-                                        <c-doc-builder-rule rule={sel.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="showIf" onrulechange={handleRule}></c-doc-builder-rule>
+                                        <c-doc-builder-rule apex-checks={apexCheckNames} rule={sel.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="showIf" onrulechange={handleRule}></c-doc-builder-rule>
                                     </div>
                                     <template lwc:if={selIsTextual}>
                                         <lightning-textarea label="Otherwise show this text instead" value={sel.elseText} data-prop="elseText" onchange={handleProp} onfocus={handleFocus}></lightning-textarea>
@@ -505,13 +520,33 @@
                             </template>
 
                             <template lwc:else>
-                                <div class="panel-title">
-                                    <span class="eyebrow">Template</span>
-                                    <h2>{panelTitle}</h2>
-                                </div>
+                                <template lwc:if={isPanelMenu}>
+                                    <div class="panel-title">
+                                        <span class="eyebrow">Template</span>
+                                        <h2>{panelTitle}</h2>
+                                    </div>
+                                    <p class="hint">Click a block on the page to edit it, or open a section below for settings that apply to the whole document.</p>
+                                    <nav class="settings-menu" aria-label="Template settings">
+                                        <template for:each={settingsMenu} for:item="m">
+                                            <button key={m.panel} type="button" class="menu-item" data-panel={m.panel} onclick={handleDock}>
+                                                <span class="menu-text">
+                                                    <span class="menu-label">{m.label}</span>
+                                                    <span class="menu-detail">{m.detail}</span>
+                                                </span>
+                                                <span class="menu-chevron" aria-hidden="true">›</span>
+                                            </button>
+                                        </template>
+                                    </nav>
+                                </template>
+                                <template lwc:else>
+                                    <button type="button" class="link-btn back-link" onclick={handleSettingsMenu}>‹ All template settings</button>
+                                    <div class="panel-title">
+                                        <span class="eyebrow">Template</span>
+                                        <h2>{panelTitle}</h2>
+                                    </div>
+                                </template>
 
                                 <template lwc:if={isPanelTemplate}>
-                                    <p class="hint">Click a block on the page to edit it. Use the bar under the page for page setup, header and footer, and calculated values.</p>
                                     <lightning-input type="text" label="Template name" value={name} data-field="name" onchange={handleSetting}></lightning-input>
                                     <lightning-input
                                         type="text"
@@ -569,9 +604,18 @@
 
                                     <h3>Watermark</h3>
                                     <lightning-input type="text" label="Watermark text" placeholder="e.g. CONFIDENTIAL" value={watermark.text} data-section="watermark" data-prop="text" data-focus="watermarkText" onchange={handlePage} onfocus={handlePageFocus}></lightning-input>
+                                    <lightning-combobox label="Direction" options={watermarkDirectionOptions} value={watermarkDirection} data-section="watermark" data-prop="direction" onchange={handlePage}></lightning-combobox>
+                                    <template lwc:if={watermarkDiagonalWithFields}>
+                                        <p class="hint">A diagonal watermark is drawn once when you save, so it can't contain fields. This one prints across the page instead.</p>
+                                    </template>
+                                    <div class="pair">
+                                        <lightning-combobox label="Size" options={watermarkSizeOptions} value={watermarkSize} data-section="watermark" data-prop="size" onchange={handlePage}></lightning-combobox>
+                                        <lightning-combobox label="Shade" options={watermarkShadeOptions} value={watermarkShade} data-section="watermark" data-prop="shade" onchange={handlePage}></lightning-combobox>
+                                    </div>
+                                    <p class="hint">The direction, size and shade also apply to the DRAFT mark on draft documents.</p>
                                     <p class="hint">Show the watermark only if (leave empty to show it always)</p>
                                     <div class="soft">
-                                        <c-doc-builder-rule rule={watermark.showIf} object-name={baseObjectName} calc-names={calcNameList} onrulechange={handleWatermarkRule}></c-doc-builder-rule>
+                                        <c-doc-builder-rule apex-checks={apexCheckNames} rule={watermark.showIf} object-name={baseObjectName} calc-names={calcNameList} onrulechange={handleWatermarkRule}></c-doc-builder-rule>
                                     </div>
                                 </template>
 
@@ -602,7 +646,7 @@
                                                     <lightning-input type="text" label="Email field" placeholder="e.g. Contact.Email" value={s.emailField} data-list="signers" data-index={s.index} data-prop="emailField" onchange={handleRow}></lightning-input>
                                                 </div>
                                                 <p class="hint">Only include rows where (leave empty for everyone). People without an email address are left out.</p>
-                                                <c-doc-builder-rule rule={s.filter} object-name={s.ruleObject} data-index={s.index} onrulechange={handleSignerFilter}></c-doc-builder-rule>
+                                                <c-doc-builder-rule apex-checks={apexCheckNames} rule={s.filter} object-name={s.ruleObject} data-index={s.index} onrulechange={handleSignerFilter}></c-doc-builder-rule>
                                             </template>
                                             <template lwc:if={s.isTyped}>
                                                 <lightning-input type="text" label="Name" value={s.name} data-list="signers" data-index={s.index} data-prop="name" onchange={handleRow} onfocus={handleSignerFocus}></lightning-input>
@@ -627,6 +671,61 @@
                                             </div>
                                             <template lwc:if={p.result}><p class={p.resultCls}>{p.result}</p></template>
                                         </div>
+                                    </template>
+                                </template>
+
+                                <template lwc:if={isPanelData}>
+                                    <p class="hint">
+                                        Fetch records that aren't a direct list of this record: a list on a related record's related record, or records that only match by a value, such as the account's active contracts.
+                                        Use a source as a table's rows, in calculated values, or print a value from its first row from the Fields tab.
+                                    </p>
+                                    <template for:each={dataSourceRows} for:item="d">
+                                        <div key={d.key} class="row-card ds-card">
+                                            <div class="row-line">
+                                                <lightning-input type="text" label="Name" value={d.name} data-index={d.index} data-prop="name" field-level-help="Letters, digits and underscores. Used as ds:Name in the template." onchange={handleDsProp}></lightning-input>
+                                                <lightning-button-icon icon-name="utility:delete" alternative-text="Remove data source" class="row-remove" data-index={d.index} onclick={handleRemoveDataSource}></lightning-button-icon>
+                                            </div>
+                                            <lightning-combobox label="Records of" placeholder="Choose an object" options={d.objectOptions} value={d.object} data-index={d.index} data-prop="object" onchange={handleDsProp}></lightning-combobox>
+                                            <template lwc:if={d.hasObject}>
+                                                <h4 class="ds-sub">Only records where</h4>
+                                                <template for:each={d.filters} for:item="f">
+                                                    <div key={f.key} class="ds-filter">
+                                                        <c-doc-builder-field-picker object-name={d.object} value={f.field} label="Field" data-index={d.index} data-findex={f.findex} data-prop="field" onchange={handleDsFilter}></c-doc-builder-field-picker>
+                                                        <div class="pair">
+                                                            <lightning-combobox variant="label-hidden" label="Comparison" options={f.opOptions} value={f.op} data-index={d.index} data-findex={f.findex} data-prop="op" onchange={handleDsFilter}></lightning-combobox>
+                                                            <lightning-combobox variant="label-hidden" label="Compare with" options={dsFromOptions} value={f.from} data-index={d.index} data-findex={f.findex} data-prop="from" onchange={handleDsFilter}></lightning-combobox>
+                                                        </div>
+                                                        <template lwc:if={f.isValue}>
+                                                            <lightning-input type="text" variant="label-hidden" label="Value" placeholder="e.g. Activated, 2026-01-31 or 1000" value={f.value} data-index={d.index} data-findex={f.findex} data-prop="value" onchange={handleDsFilter}></lightning-input>
+                                                        </template>
+                                                        <template lwc:if={f.isRecord}>
+                                                            <c-doc-builder-field-picker object-name={baseObjectName} value={f.recordField} label="Field on this record" variant="standard" data-index={d.index} data-findex={f.findex} data-prop="recordField" onchange={handleDsFilter}></c-doc-builder-field-picker>
+                                                        </template>
+                                                        <template lwc:if={f.isList}>
+                                                            <lightning-combobox label="List" placeholder="Choose a list" options={f.listChoices} value={f.list} data-index={d.index} data-findex={f.findex} data-prop="list" onchange={handleDsFilter}></lightning-combobox>
+                                                            <template lwc:if={f.listObject}>
+                                                                <c-doc-builder-field-picker object-name={f.listObject} value={f.listField} label="Field in that list" variant="standard" data-index={d.index} data-findex={f.findex} data-prop="listField" onchange={handleDsFilter}></c-doc-builder-field-picker>
+                                                            </template>
+                                                        </template>
+                                                        <button type="button" class="link-btn" data-index={d.index} data-findex={f.findex} onclick={handleRemoveDsFilter}>Remove this filter</button>
+                                                    </div>
+                                                </template>
+                                                <button type="button" class="btn small" data-index={d.index} onclick={handleAddDsFilter}>Add filter</button>
+                                                <template lwc:if={d.hasFilters}>
+                                                    <lightning-combobox label="Records must match" options={dsMatchOptions} value={d.match} data-index={d.index} data-prop="match" onchange={handleDsProp}></lightning-combobox>
+                                                </template>
+                                                <h4 class="ds-sub">Order and size</h4>
+                                                <c-doc-builder-field-picker object-name={d.object} value={d.orderBy} label="Sort by" variant="standard" data-index={d.index} data-prop="orderBy" onchange={handleDsProp}></c-doc-builder-field-picker>
+                                                <div class="pair">
+                                                    <lightning-combobox label="Direction" options={dsDirectionOptions} value={d.orderDirection} data-index={d.index} data-prop="orderDirection" onchange={handleDsProp}></lightning-combobox>
+                                                    <lightning-input type="number" label="At most" min="1" max="500" value={d.limit} data-index={d.index} data-prop="limit" onchange={handleDsProp}></lightning-input>
+                                                </div>
+                                                <p class="hint">In text: {d.usage} prints that field from the first record. Data sources load in this order, so a filter can use the lists and sources above it.</p>
+                                            </template>
+                                        </div>
+                                    </template>
+                                    <template lwc:if={canAddDataSource}>
+                                        <button type="button" class="btn small" onclick={handleAddDataSource}>Add data source</button>
                                     </template>
                                 </template>
 
@@ -670,11 +769,32 @@
                                                 <lightning-button-icon icon-name="utility:delete" alternative-text="Remove condition" class="row-remove" data-list="conditions" data-index={c.index} onclick={handleRemoveRow}></lightning-button-icon>
                                             </div>
                                             <p class="hint">True when</p>
-                                            <c-doc-builder-rule rule={c.rule} object-name={baseObjectName} calc-names={calcNameList} data-index={c.index} onrulechange={handleConditionRule}></c-doc-builder-rule>
+                                            <c-doc-builder-rule apex-checks={apexCheckNames} rule={c.rule} object-name={baseObjectName} calc-names={calcNameList} data-index={c.index} onrulechange={handleConditionRule}></c-doc-builder-rule>
                                             <p class="hint">In text: {c.usage}</p>
                                         </div>
                                     </template>
                                     <button type="button" class="btn small" data-list="conditions" onclick={handleAddRow}>Add condition</button>
+
+                                    <h3>Apex variables</h3>
+                                    <p class="hint">Values worked out by an Apex class a developer wrote, for logic a rule can't express. One class can offer many values: add a variable for each one you need. A variable appears as "Apex: Name" in every rule's field list. In text, {apexCheckExample} prints it, or pick it in the Fields tab.</p>
+                                    <template for:each={apexCheckRows} for:item="c">
+                                        <div key={c.index} class="row-card">
+                                            <div class="row-line">
+                                                <lightning-input type="text" label="Name" placeholder="e.g. HighPriorityCases" value={c.name} data-list="apexChecks" data-index={c.index} data-prop="name" field-level-help="Letters, digits and underscores." onchange={handleRow}></lightning-input>
+                                                <lightning-button-icon icon-name="utility:delete" alternative-text="Remove Apex check" class="row-remove" data-list="apexChecks" data-index={c.index} onclick={handleRemoveRow}></lightning-button-icon>
+                                            </div>
+                                            <lightning-input type="text" label="Apex class" placeholder="e.g. DocBuilderSampleAccountVariables" value={c.className} data-list="apexChecks" data-index={c.index} data-prop="className" onchange={handleRow}></lightning-input>
+                                            <button type="button" class="btn small" data-index={c.index} onclick={handleCheckCondition}>Check the class</button>
+                                            <template lwc:if={c.result}><p class={c.resultCls}>{c.result}</p></template>
+                                            <template lwc:if={c.hasValues}>
+                                                <lightning-combobox label="Value" placeholder="Choose a value" options={c.variableOptions} value={c.variable} data-index={c.index} onchange={handleApexVariable}></lightning-combobox>
+                                            </template>
+                                            <template lwc:if={c.typeLabel}><p class="hint">{c.typeLabel}</p></template>
+                                            <lightning-input type="text" label="Settings for the class" placeholder={checkSettingsHint} value={c.settings} data-list="apexChecks" data-index={c.index} data-prop="settings" onchange={handleRow}></lightning-input>
+                                            <template lwc:if={c.usage}><p class="hint">In text: {c.usage}</p></template>
+                                        </div>
+                                    </template>
+                                    <button type="button" class="btn small" data-list="apexChecks" onclick={handleAddRow}>Add Apex variable</button>
                                 </template>
 
                                 <template lwc:if={isPanelCalc}>
@@ -702,7 +822,7 @@
                                             </template>
                                             <template lwc:if={c.isRollup}>
                                                 <p class="hint">Only count rows where (leave empty for all rows)</p>
-                                                <c-doc-builder-rule rule={c.filter} object-name={c.childObject} data-index={c.index} onrulechange={handleCalcFilter}></c-doc-builder-rule>
+                                                <c-doc-builder-rule apex-checks={apexCheckNames} rule={c.filter} object-name={c.childObject} data-index={c.index} onrulechange={handleCalcFilter}></c-doc-builder-rule>
                                             </template>
                                             <template lwc:if={c.isFormula}>
                                                 <div class="fx-wrap">
@@ -770,6 +890,29 @@
                                     </button>
                                 </template>
                             </div>
+                            <template lwc:if={hasPickerApexVariables}>
+                                <h3>Apex variables</h3>
+                                <div class="pick-list short">
+                                    <template for:each={pickerApexVariables} for:item="v">
+                                        <button key={v.key} type="button" class="pick" data-path={v.path} data-label={v.label} data-type={v.type} onclick={handlePick}>
+                                            <span class="pick-label">{v.label}</span>
+                                            <span class="pick-type">{v.type}</span>
+                                        </button>
+                                    </template>
+                                </div>
+                            </template>
+                            <template lwc:if={hasPickerDataSources}>
+                                <h3>Data sources</h3>
+                                <div class="pick-list short">
+                                    <template for:each={pickerDataSources} for:item="d">
+                                        <div key={d.key} class="pick ds-pick">
+                                            <span class="pick-label">{d.label} <span class="pick-type">{d.detail}</span></span>
+                                            <button type="button" class="link-btn" data-rel={d.rel} data-object={d.object} data-label={d.openLabel} onclick={handleDrill}>Fields</button>
+                                            <button type="button" class="link-btn" data-source={d.rel} onclick={handlePickList}>Add as table</button>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
                             <template lwc:if={hasLookups}>
                                 <h3>Related records</h3>
                                 <div class="pick-list short">

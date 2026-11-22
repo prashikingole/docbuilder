@@ -53,6 +53,7 @@ public with sharing class DocBuilderEngine {
                 Map<String, Object> body = (Map<String, Object>) JSON.deserializeUntyped(part.version.Body_JSON__c);
                 DocBuilderPrepare.apply(body, part.version.Id, languageFor(req, template));
                 part.ctx = new DocBuilderContext(template.Base_Object__c, req.recordId, body, template.File_Name_Pattern__c);
+                part.ctx.language = languageFor(req, template);
                 part.ctx.signProvider = String.isBlank(req.signProviderName) ? null : DocBuilderSign.providerFor(req.signProviderName);
                 part.ctx.signerOverrides = req.signers;
                 part.ctx.load();

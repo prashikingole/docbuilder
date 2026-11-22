@@ -77,13 +77,15 @@ a { color: var(--accent-ink); }
       <li><a href="#fields">Fields and text</a></li>
       <li><a href="#conditions">Conditions</a></li>
       <li><a href="#tables">Tables and totals</a></li>
+      <li><a href="#datasources">Data sources</a></li>
+      <li><a href="#custom">Custom content</a></li>
       <li><a href="#layout">Layout and page</a></li>
       <li><a href="#terms">Terms and the clause library</a></li>
       <li><a href="#signers">Signers</a></li>
       <li><a href="#emails">Email and signing wording</a></li>
       <li><a href="#languages">Languages</a></li>
       <li><a href="#versions">Preview, check, activate and versions</a></li>
-      <li><a href="#import">Import and export templates</a></li>
+      <li><a href="#import">Import templates</a></li>
       <li><a href="#esign">Set up e-signature</a></li>
       <li><a href="#status">Signature status updates</a></li>
       <li><a href="#settings">Organization limits</a></li>
@@ -141,18 +143,29 @@ a { color: var(--accent-ink); }
     <section id="template">
       <h2>Create a template</h2>
       <ol>
-        <li>Open <span class="ui">Template Designer</span> and click <span class="ui">New</span>.</li>
+        <li>Open <span class="ui">Template Designer</span> and click <span class="ui">New</span>. To start from an existing Word, Conga, DocuSign Gen or CPQ template instead, click <span class="ui">Import</span> (see <a href="#import">Import and export templates</a>).</li>
         <li>Enter a name and the object it's built on, by API name, for example <code>Quote</code>, <code>Opportunity</code> or <code>My_Object__c</code>.</li>
-        <li>Add blocks from the rail on the left: <span class="ui">Text</span>, <span class="ui">Heading</span>, <span class="ui">Table</span>, <span class="ui">Image</span>, <span class="ui">Terms</span>, <span class="ui">Sign</span> and <span class="ui">Break</span> (a page break).</li>
-        <li>Click a block to edit it in <span class="ui">Settings</span> on the right. Use the arrows to move it and the bin to delete it.</li>
-        <li>Use the bar above the page for page setup, header and footer, conditions, signers, email wording, calculated values, and the template's name and languages.</li>
+        <li>Add blocks from the rail on the left:
+          <ul>
+            <li><span class="ui">Text</span>, <span class="ui">Heading</span>, <span class="ui">Table</span>, <span class="ui">Image</span>, <span class="ui">Terms</span> and <span class="ui">Sign</span>;</li>
+            <li><span class="ui">Break</span>, a page break;</li>
+            <li><span class="ui">Custom</span>, content from a Visualforce page or an Apex class.</li>
+          </ul>
+        </li>
+        <li>Click a block to edit it in <span class="ui">Settings</span> on the right. Use the arrows to move it and the bin to delete it. Click <span class="ui">‹ Template settings</span> at the top of the panel, or press Esc, to go back to the template's own settings.</li>
+        <li>With no block selected, the right-hand panel lists the <span class="ui">Template settings</span>: page setup, header and footer, data sources, calculated values, conditions, signers, email wording, name and languages, and versions. Each shows a one-line summary; click one to open it, and <span class="ui">All template settings</span> to go back.</li>
         <li>Click <span class="ui">Save draft</span>, then <span class="ui">Activate</span> when it's ready.</li>
       </ol>
     </section>
 
     <section id="fields">
       <h2>Fields and text</h2>
-      <p>Open the <span class="ui">Fields</span> tab and click a field to add it to the selected text. The list is read live from your org. Open <span class="ui">Related records</span> to reach fields on records this one points to, such as Account or Owner. Click a list under <span class="ui">Lists, added as tables</span> to add a table.</p>
+      <p>Open the <span class="ui">Fields</span> tab and click a field to add it to the selected text. The list is read live from your org. The tab has these sections:</p>
+      <ul>
+        <li><span class="ui">Related records</span>: fields on records this one points to, such as Account or Owner.</li>
+        <li><span class="ui">Lists, added as tables</span>: click a list to add a table.</li>
+        <li><span class="ui">Apex variables</span> and <span class="ui">Data sources</span>, once the template has them.</li>
+      </ul>
       <p>Fields are stored as tokens you can also type:</p>
       <div class="table-wrap"><table>
         <thead><tr><th>Token</th><th>Prints</th></tr></thead>
@@ -160,6 +173,8 @@ a { color: var(--accent-ink); }
           <tr><td><code>{{Name}}</code></td><td>A field on the record.</td></tr>
           <tr><td><code>{{Account.Name}}</code></td><td>A field on a related record.</td></tr>
           <tr><td><code>{{calc:Subtotal}}</code></td><td>A calculated value (see Tables and totals).</td></tr>
+          <tr><td><code>{{ds:Contracts.ContractNumber}}</code></td><td>A field from the first record of a <a href="#datasources">data source</a>.</td></tr>
+          <tr><td><code>{{apex:CustomerTier}}</code></td><td>An <a href="#conditions">Apex variable</a>. Yes/no values print as Yes or No.</td></tr>
           <tr><td><code>{{Amount|currency}}</code></td><td>A field with a format: <code>currency</code>, <code>number</code>, <code>percent</code>, <code>date</code>, <code>upper</code> or <code>lower</code>.</td></tr>
         </tbody>
       </table></div>
@@ -170,7 +185,14 @@ a { color: var(--accent-ink); }
       <h2>Conditions</h2>
       <h3>Show a whole block only if…</h3>
       <p>Every block has <span class="ui">Visibility: show this block only if</span>. Add numbered conditions (field, operator, value) and choose how to combine them: leave blank or type <code>AND</code> for all, <code>OR</code> for any, or custom logic such as <code>1 AND (2 OR NOT 3)</code>. Text blocks can show <span class="ui">Otherwise show this text instead</span>.</p>
-      <p>Operators: equals, does not equal, is greater than, is at least, is less than, is at most, contains, is blank, is not blank. Pick the field from the list: the record's own fields, <span class="ui">Calculated: …</span> values, or a related record (for example <span class="ui">Account ›</span>, then Industry in the second list). The value box matches the field: a list for picklists, Yes/No for checkboxes, a date picker for dates.</p>
+      <p>Operators: equals, does not equal, is greater than, is at least, is less than, is at most, contains, is blank, is not blank. Pick the field from the list:</p>
+      <ul>
+        <li>the record's own fields;</li>
+        <li><span class="ui">Apex: …</span> variables;</li>
+        <li><span class="ui">Calculated: …</span> values;</li>
+        <li>a related record, for example <span class="ui">Account ›</span>, then Industry in the second list.</li>
+      </ul>
+      <p>The value box matches the field: a list for picklists, Yes/No for checkboxes, a date picker for dates.</p>
 
       <h3>Show part of a text only if…</h3>
       <ol>
@@ -189,7 +211,23 @@ a { color: var(--accent-ink); }
           <tr><td><code>… {{else}} …</code></td><td>the alternative, inside any of the above</td></tr>
         </tbody>
       </table></div>
-      <p>A part with more than a "has a value" check gets its own condition automatically, named Part1, Part2 and so on. It is removed when no text uses it. Use the <span class="ui">Conditions</span> panel in the bar above the page only for a rule shared by several texts.</p>
+      <p>A part with more than a "has a value" check gets its own condition automatically, named Part1, Part2 and so on. It is removed when no text uses it. Use the <span class="ui">Conditions</span> panel under Template settings only for a rule shared by several texts.</p>
+      <h3>Apex variables: values worked out by code</h3>
+      <p>When a rule or calculated value can't express the logic (a credit check, a look-up in another system, a figure across many records), a developer writes <b>one</b> Apex class that offers any number of named values: yes/no, numbers, text or dates. You then add a variable for each value you need, with no new class each time.</p>
+      <ol>
+        <li>Open <span class="ui">Conditions</span> under Template settings.</li>
+        <li>Under <span class="ui">Apex variables</span>, click <span class="ui">Add Apex variable</span> and enter the class.</li>
+        <li>Click <span class="ui">Check the class</span>. It lists the values the class offers, with their types.</li>
+        <li>Choose a <span class="ui">Value</span>; the variable is named after it, and you can rename it.</li>
+        <li>Add another variable for the next value. The class is filled in for you.</li>
+      </ol>
+      <p>Use a variable:</p>
+      <ul>
+        <li>in any rule: it's listed as <span class="ui">Apex: Name</span> with comparisons that suit its type, for example "Apex: WonAmount is greater than 250000" or "Apex: LastWonDate is after 2026-01-01";</li>
+        <li>in text: <code>{{apex:CustomerTier}}</code> prints it. Pick it in the Fields tab under <span class="ui">Apex variables</span>;</li>
+        <li>as a condition in text: <code>{{#if apex:HasOpenCases}} … {{else}} … {{/if}}</code>. It counts as true when it's yes, a number other than 0, or any text.</li>
+      </ul>
+      <p>The <span class="ui">Settings</span> box passes options to the class, for example <code>{"goldFrom": 500000}</code>. Variables from the same class with the same settings are worked out in one go, once per document, as the user generating it. Their values are kept in the document's audit record. Classes that only answer yes/no (<code>DocBuilderConditionProvider</code>) still work and become yes/no variables.</p>
     </section>
 
     <section id="tables">
@@ -209,8 +247,10 @@ a { color: var(--accent-ink); }
         <li><span class="ui">Summary rows</span>: a label and a calculated value under the table. A count, sum, average, lowest or highest over the table's own list adds up only the rows the table shows, after its row filter. Totals of money or percentages print in the field's format unless you choose another.</li>
         <li><span class="ui">Add a total for these rows</span>: creates a calculated value over the same list and a summary row showing it.</li>
         <li><span class="ui">Hide the table when there are no rows</span>.</li>
+        <li><span class="ui">Group rows by</span> a field: each group gets a heading row, and <span class="ui">Show the summary rows for each group too</span> adds subtotals. Groups follow the table's sort order, so sort by the same field.</li>
       </ul>
       <p>The same list can feed several tables, each with its own filter, sort and totals; for example, products split into hardware and services.</p>
+      <p><b>Rows from a child of a child, or from any matching records:</b> create a <a href="#datasources">data source</a> and choose it in <span class="ui">Rows come from</span>. For example, every product on every quote of the account: a data source of <b>Quote Line Item</b> where <i>Quote › Account ID</i> equals the record's <i>Account ID</i>, shown in one table grouped by <i>Quote › Name</i> with a subtotal per quote.</p>
       <h3>Calculated values</h3>
       <p>Under <span class="ui">Calculated values</span>: count, sum, average, lowest or highest over a list, with an optional row filter; or a formula.</p>
       <p>In the formula bar, start typing a field's name or label and pick it from the suggestions. Related records open with <span class="ui">›</span>, for example Account › Annual Revenue. Under the bar, the formula is read back with field labels; anything that isn't a field or function is marked red with the reason. Pick a record in <span class="ui">Try them with this record</span> to see each value worked out as you type.</p>
@@ -225,13 +265,59 @@ a { color: var(--accent-ink); }
       </table></div>
     </section>
 
+    <section id="datasources">
+      <h2>Data sources: records beyond this record's lists</h2>
+      <p>A template can already use fields of related records (<code>Account.Owner.Name</code>), this record's lists (Quote Line Items) and lists on a related record (<code>Account.Contacts</code>). For anything else, add a <span class="ui">Data source</span> under Template settings. Examples:</p>
+      <ul>
+        <li>The account's active contracts: <b>Contract</b> where Account ID equals the record's <i>Account ID</i> and Status equals <i>Activated</i>.</li>
+        <li>Line items of all the opportunity's quotes: <b>Quote Line Item</b> where Quote › Opportunity ID equals the record's <i>Id</i>.</li>
+        <li>Price book entries for these products in another price book: <b>Price Book Entry</b> where Product ID <i>is one of</i> the values in <i>Quote Line Items › Product ID</i>, and Price Book › Name equals <i>Partner</i>.</li>
+      </ul>
+      <p>For each source, choose the object, then add filters. Every filter compares a field with one of three things: a value you type, a field on this record, or the values in a list (a related list, or a data source above this one). Choose whether records must match all filters or any, then the sort order and the most records to fetch (up to 500).</p>
+      <p>Use a data source:</p>
+      <ul>
+        <li>as a table's rows: choose <span class="ui">Data source: Name</span> in Rows come from, or click <span class="ui">Add as table</span> under Data sources in the Fields tab;</li>
+        <li>in calculated values, for example a count or total over it;</li>
+        <li>for one value: in the Fields tab, click <span class="ui">Fields</span> next to the source. <code>{{ds:Contracts.ContractNumber}}</code> prints that field from its first record, so sort the source to choose which one. It works in conditions too.</li>
+      </ul>
+      <div class="note">Data sources read records with each user's own access, like everything else in DocBuilder. Values are always passed to the query safely, never pasted into it. A template can have up to 10 sources; only those used somewhere are fetched. <span class="ui">Check fields</span> checks them too. Renaming a source updates the places that use it.</div>
+    </section>
+
+    <section id="custom">
+      <h2>Custom content: Visualforce pages and Apex</h2>
+      <p>For content a template can't express, add a <span class="ui">Custom</span> block from the rail and choose where its content comes from:</p>
+      <ul>
+        <li><b>A Visualforce page.</b> DocBuilder opens the page for the record (<code>?id=</code> the record's Id) and prints its body in the block. Build the page without <code>renderAs</code>, using simple tables and inline styles, as for any PDF. Users who generate the document need access to the page. To reuse a Visualforce component, put it on a small page.</li>
+        <li><b>An Apex class</b> written by a developer that returns the content, given the record, the language and the text in the block's <span class="ui">Settings</span> box. Use <span class="ui">Check the class</span> to confirm it can be used.</li>
+      </ul>
+      <p>The content appears in Preview and in the PDF. Scripts, frames, forms and event handlers are removed from it.</p>
+      <h3>Samples to try</h3>
+      <p>The project's <code>samples</code> folder has working examples. It isn't part of the package; deploy it to an org to try them.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Sample</th><th>Use it as</th><th>What it shows</th></tr></thead>
+        <tbody>
+          <tr><td><code>DocBuilderSampleAccountCard</code></td><td>Custom block › A Visualforce page</td><td>The account behind the quote or opportunity: industry, owner, location, employees, and its five most recent won deals.</td></tr>
+          <tr><td><code>DocBuilderSampleProductSummary</code></td><td>Custom block › An Apex class. Settings: <code>{"title":"Your investment"}</code></td><td>Quote or opportunity products grouped by product family, with a subtotal per family and a total.</td></tr>
+          <tr><td><code>DocBuilderSampleAccountVariables</code></td><td>Conditions › Apex variables. Settings (optional): <code>{"goldFrom":500000,"silverFrom":100000}</code></td><td>Seven values about the account: HasOpenCases, OpenCaseCount, HasHighPriorityCases, WonDealCount, WonAmount, LastWonDate, CustomerTier (Gold/Silver/Bronze).</td></tr>
+          <tr><td><code>DocBuilderSampleOpenCasesCheck</code></td><td>Conditions › Apex variables. Settings (optional): <code>{"priority":"High"}</code></td><td>A single yes/no: does the record's account have open cases (of that priority)?</td></tr>
+        </tbody>
+      </table></div>
+      <div class="note"><b>Lightning web components and Aura components can't be included.</b> They only run in a browser, and PDFs are produced on the server where no browser runs them. Rebuild that part as a Visualforce page or an Apex class. Salesforce treats reading a Visualforce page like a call to another system, so a Flow that saves records and then generates a document in the same step should generate in a separate step.</div>
+    </section>
+
     <section id="layout">
       <h2>Layout and page</h2>
       <ul>
         <li><b>Side by side</b>: drag a block by its label onto the left or right edge of another block; a blue bar shows where it will land. Up to four blocks fit in a row and share the width equally. Drag the line between two blocks to change their widths; it snaps to 5% steps and to thirds. Drop a block above or below a row to make it full width again. Without a mouse: select a block and use <span class="ui">Width</span> and <span class="ui">Place beside the block above</span> under <span class="ui">Layout</span>, or focus a dividing line and press ← or →.</li>
         <li><b>Page setup</b>: A4, US Letter or US Legal; portrait or landscape; narrow, normal or wide margins.</li>
         <li><b>Header</b>: a logo and text repeated on every page. <b>Footer</b>: text and optional "Page 1 of 3".</li>
-        <li><b>Watermark</b>: light grey text in the middle of every page, behind the content, optionally only when a rule is met. Its size is set automatically to fit the page width, so short words print large and longer phrases print smaller. A document generated as a draft shows DRAFT instead of this watermark.</li>
+        <li><b>Watermark</b>: grey text in the middle of every page, behind the content, optionally only when a rule is met. Choose:
+          <ul>
+            <li><span class="ui">Direction</span>: <i>Across the page</i> or <i>Diagonal</i>.</li>
+            <li><span class="ui">Size</span>: <i>Fit the page</i>, <i>Large</i>, <i>Medium</i> or <i>Small</i>.</li>
+            <li><span class="ui">Shade</span>: <i>Light</i>, <i>Medium</i> or <i>Dark</i>.</li>
+          </ul>
+          A document generated as a draft shows DRAFT, in the same direction, size and shade, instead of this watermark. Salesforce's PDF engine can't turn text, so a diagonal watermark is drawn as a picture when you save the template, and the picture is kept with the template. That's why a diagonal watermark can't contain fields: one with fields prints across the page instead.</li>
         <li><b>Images</b>: upload in the Image block's settings and set its width and alignment.</li>
       </ul>
       <div class="note">PDFs are produced by Salesforce's PDF engine, which supports simple layouts. Keep designs to headings, text, tables, images and columns.</div>
@@ -245,7 +331,7 @@ a { color: var(--accent-ink); }
 
     <section id="signers">
       <h2>Signers</h2>
-      <p>Open <span class="ui">Signers</span> in the bar above the page, add signers in signing order, and add a <span class="ui">Sign</span> block where they sign. For each signer choose <span class="ui">Who signs</span>:</p>
+      <p>Open <span class="ui">Signers</span> under Template settings, add signers in signing order, and add a <span class="ui">Sign</span> block where they sign. For each signer choose <span class="ui">Who signs</span>:</p>
       <ul>
         <li><b>A person on this record</b>: pick a user, contact or lead lookup, such as Owner or Contact.</li>
         <li><b>Everyone in a related list</b>: for example every Opportunity Contact Role, with an optional filter such as Role equals Decision Maker. People without an email address are left out. Up to 50 people.</li>
@@ -256,7 +342,7 @@ a { color: var(--accent-ink); }
 
     <section id="emails">
       <h2>Email and signing wording</h2>
-      <p>Under <span class="ui">Emails</span> in the bar above the page, set the subject and message used when this document is emailed, and when it is sent for signature. Fields and conditions work here too. They prefill the Generate Document dialog, where senders can still change them.</p>
+      <p>Under <span class="ui">Emails</span> under Template settings, set the subject and message used when this document is emailed, and when it is sent for signature. Fields and conditions work here too. They prefill the Generate Document dialog, where senders can still change them.</p>
     </section>
 
     <section id="languages">
@@ -273,12 +359,12 @@ a { color: var(--accent-ink); }
       <h2>Preview, check, activate and go back to an earlier version</h2>
       <ul>
         <li><span class="ui">Preview</span>: pick any record to see exactly what it would produce. Uses your unsaved changes and saves nothing.</li>
-        <li><span class="ui">Check fields</span> (in the bar above the page): confirms every field the template uses exists and is readable.</li>
+        <li><span class="ui">Check fields</span> (next to Save draft): confirms every field the template uses exists and is readable.</li>
         <li><span class="ui">Save draft</span>: saves without affecting users. Editing an active template creates a new draft version.</li>
         <li><span class="ui">Activate</span>: makes the draft live. The previous version is archived, never deleted. Users always generate from the active version.</li>
       </ul>
       <h3>Versions</h3>
-      <p>Open <span class="ui">Versions</span> in the bar above the page to see every version: the draft, the live one, and earlier ones, with when each went live and who last changed it.</p>
+      <p>Open <span class="ui">Versions</span> under Template settings to see every version: the draft, the live one, and earlier ones, with when each went live and who last changed it.</p>
       <ul>
         <li><span class="ui">Put live</span> (on an earlier version): it becomes the live version straight away, for example to undo a change that went live by mistake. The version that was live is kept, so you can switch back the same way. Your draft is not touched. The version is checked first; if a field it uses has since been deleted or hidden, it isn't put live and the problem is shown.</li>
         <li><span class="ui">Edit a copy</span>: copies that version, with its translations, into the draft, so you can change it and then Activate. If there is already a draft, its content is replaced (you're asked first). Nothing changes for users until you activate.</li>
@@ -287,35 +373,61 @@ a { color: var(--accent-ink); }
     </section>
 
     <section id="import">
-      <h2>Import templates from Word, Conga, DocuSign Gen or CPQ</h2>
-      <p>Bring existing templates over instead of rebuilding them. Click <span class="ui">Import</span> next to the template picker.</p>
-      <ol>
-        <li>Choose a file or paste the template, enter a name and the object it's built on (for example Opportunity, Quote or <code>SBQQ__Quote__c</code>), and click <span class="ui">Next</span>.
+      <h2>Import templates from CPQ, Conga, DocuSign Gen, OmniStudio, Word or Salesforce quotes</h2>
+      <p>Bring existing templates over instead of rebuilding them. Click <span class="ui">Import</span> next to the template picker and choose where the template comes from.</p>
+      <h3>1. Choose the source</h3>
+      <ul>
+        <li><b>A file or pasted text:</b> upload or paste the template, then enter a name and the object it's built on.
           <ul>
-            <li><b>Word (.docx)</b>, including Conga Composer and DocuSign Gen templates. Older .doc files must be saved as .docx first. The file is read in your browser and isn't uploaded.</li>
-            <li><b>Web page (.htm, .html) or pasted HTML</b>, for example the content of a Salesforce CPQ template section.</li>
-            <li><b>Text (.txt)</b> or pasted text.</li>
-            <li><b>A DocBuilder export (.json)</b> from another org. It's created straight away, with no mapping step.</li>
+            <li>Word (.docx). Older .doc files must be saved as .docx first. The file is read in your browser and isn't uploaded.</li>
+            <li>A web page (.htm, .html) or pasted HTML.</li>
+            <li>Text (.txt) or pasted text.</li>
+            <li>A DocBuilder export (.json), which is created straight away.</li>
           </ul>
         </li>
-        <li>Review what was found:
+        <li><b>From this org:</b> lists the templates of the tools installed here, and reads the one you pick directly. No download is needed.
           <ul>
-            <li><b>Tables</b>: for a table whose row repeats for each related record, choose the list, such as Quote Line Items. DocBuilder guesses it when the template names the list, for example <code>TableStart:LineItems</code> or <code>{{#each OpportunityLineItems}}</code>. The table's heading row becomes the column headings, and rows under the repeating row, such as totals, print under the table. Any other table is laid out as blocks side by side (up to four per row).</li>
-            <li><b>Merge fields</b>: each one is matched to a Salesforce field. Suggestions are filled in by comparing names and labels: <code>ACCOUNT_BILLINGCITY</code>, <code>Opportunity.Account.Name</code>, <code>{!quote.SBQQ__Account__r.Name}</code> and <code>Close Date</code> are all recognised. Check each one, and change it from the lists where needed. You can also choose to print the name as text or leave it out. Fields you don't match print as <code>[Name]</code>, so they're easy to find later.</li>
+            <li>Salesforce CPQ quote templates are rebuilt from their sections, line columns and quote terms.</li>
+            <li>Conga Composer, DocuSign Gen and OmniStudio templates are read from their attached Word or HTML file.</li>
           </ul>
         </li>
-        <li>Click <span class="ui">Create draft template</span>. The template opens in the designer and the field check runs straight away. Nothing changes for users until you activate it.</li>
-      </ol>
-      <p><b>What comes over:</b> headings, paragraphs with bold, italic and underline, alignment, bullet and numbered lists, page breaks, tables, and the header and footer text (with page numbers when the footer has them).</p>
-      <p><b>What to redo by hand:</b> pictures and logos (add an Image block), fonts and colours, repeating sections outside tables, and conditional or calculated logic written in the other tool's own syntax. Add those with conditions and calculated values.</p>
+        <li><b>Standard Salesforce quote:</b> Salesforce doesn't let other apps read its standard quote templates, so this creates a Quote template laid out the same way. It has:
+          <ul>
+            <li>your company details, the quote number and dates;</li>
+            <li>prepared by, contact, bill-to and ship-to;</li>
+            <li>the line items, with the description and discount columns only when used;</li>
+            <li>totals, with tax and shipping only when used;</li>
+            <li>terms and signing lines.</li>
+          </ul>
+          It's created straight away as a draft.</li>
+      </ul>
+      <h3>2. Review what was found</h3>
+      <ul>
+        <li><b>Tables</b>: for a table whose row repeats for each related record, choose the list, such as Quote Line Items. DocBuilder picks it for you when the template names a Salesforce list (<code>TableStart:QuoteLineItems</code>, a DocuSign Gen <code>TableRow</code>, or <code>{{#each OpportunityLineItems}}</code>). OmniStudio lists (<code>{{#products}}</code>) are named in its data mapping rather than after a Salesforce list, so choose the list yourself. The heading row becomes the column headings; rows under the repeating row, such as totals, print under the table. Other tables are laid out as blocks side by side.</li>
+        <li><b>Merge fields</b>: each one is matched to a Salesforce field by comparing names and labels, for example <code>ACCOUNT_BILLINGCITY</code>, <code>./Account/Name</code>, <code>{!quote.SBQQ__Account__r.Name}</code> or <code>Close Date</code>. Check each one and change it from the lists where needed, or choose to print the name as text or leave it out. Unmatched fields print as <code>[Name]</code>.</li>
+        <li><b>Conditions</b>: <code>{{#if Field}} … {{else}} … {{/if}}</code> and <code>{{^Field}}</code> (OmniStudio and similar tools) become DocBuilder conditions once their field is matched. Conditions DocBuilder can't read directly are listed in the warnings, and their text prints so nothing is lost. These include comparisons such as <code>{{#if Amount &gt; 100}}</code>, DocuSign Gen <code>Conditional</code> tags and Word IF fields in Conga templates. Add them again as rules in the designer.</li>
+      </ul>
+      <h3>3. Create</h3>
+      <p>Click <span class="ui">Create draft template</span>. The template opens in the designer and the field check runs straight away. Nothing changes for users until you activate it.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Tool</th><th>What's recognised</th></tr></thead>
+        <tbody>
+          <tr><td>Salesforce CPQ</td><td><code>{!quote.Field}</code>, <code>{!primaryContact.Field}</code>, <code>{!salesRep.Field}</code>. <code>{!template.Field}</code> values (company name and so on) are filled in. Line Items sections become a quote-line table, Quote Terms a numbered list, and page breaks are kept. Custom (Visualforce) sections are listed for you to add as Custom blocks.</td></tr>
+          <tr><td>Conga Composer</td><td>Word MERGEFIELDs such as <code>«OPPORTUNITY_NAME»</code>, <code>TableStart:List</code> … <code>TableEnd:List</code>, and Conga's field naming such as <code>ACCOUNT_BILLINGCITY</code>. Format switches (<code>\@ "MM/dd/yyyy"</code>) are ignored.</td></tr>
+          <tr><td>DocuSign Gen</td><td><code>&lt;# &lt;Content Select="./Account/Name"/&gt; #&gt;</code> fields and <code>&lt;# &lt;TableRow Select="./QuoteLineItems/QuoteLineItem"/&gt; #&gt;</code> repeating rows.</td></tr>
+          <tr><td>OmniStudio</td><td><code>{{Field}}</code>, repeating rows <code>{{#list}} … {{/list}}</code>, conditions <code>{{#if Field}}</code> and <code>{{^Field}}</code>. Token names come from OmniStudio's data mapping, so check each suggested match.</td></tr>
+          <tr><td>Anything else</td><td><code>{{Field}}</code>, <code>{!Field}</code>, <code>«Field»</code>, <code>&lt;&lt;Field&gt;&gt;</code>, <code>[[Field]]</code> and <code>{Object.Field}</code>.</td></tr>
+        </tbody>
+      </table></div>
+      <p><b>What comes over:</b> headings, paragraphs with bold, italic and underline, alignment, bullet and numbered lists, page breaks, tables, and header and footer text (with page numbers when the footer has them).</p>
+      <p><b>What to redo by hand:</b> pictures and logos (add an Image block), fonts and colours, repeating sections outside tables, and the conditions listed in the warnings.</p>
       <h3>Moving templates between orgs</h3>
       <p><span class="ui">Export</span> (next to Import) downloads the open template, including unsaved changes, as a .json file. Import it in the other org. Translations and image files aren't included; images need to be uploaded again there.</p>
-      <p>Merge fields recognised: <code>{{Field}}</code>, <code>{!Field}</code>, <code>«Field»</code>, <code>&lt;&lt;Field&gt;&gt;</code>, <code>[[Field]]</code>, <code>{Object.Field}</code> and Word MERGEFIELD fields. Repeating rows are recognised from <code>{{#each List}}</code> … <code>{{/each}}</code>, <code>{#List}</code> … <code>{/List}</code> and <code>TableStart:List</code> … <code>TableEnd:List</code>.</p>
     </section>
 
     <section id="esign">
       <h2>Set up e-signature</h2>
-      <p>Each service is a row in <span class="ui">Setup › Custom Metadata Types › Signature Provider › Manage Records</span>: Label, Apex Class, Named Credential, Button Label, Sort Order, Screen Style (<code>form</code>, <code>steps</code> or <code>desk</code>), Custom Screen Flow, Settings JSON and Active. Only active providers are offered to users. The <span class="ui">Test provider</span> sends nothing and reports everyone as signed; deactivate it before going live.</p>
+      <p>Each service is a row in <span class="ui">Setup › Custom Metadata Types › Signature Provider › Manage Records</span>: Label, Apex Class, Named Credential, Button Label, Sort Order, Screen Style (<code>form</code>, <code>steps</code> or <code>desk</code>), Custom Screen Flow, Settings JSON and Active. Only active providers are offered to users, and new requests through a provider that isn't active are refused. Requests already sent keep updating after you switch a provider off. The <span class="ui">Test provider</span> sends nothing and reports everyone as signed, so no emails go out while it's the provider in use; deactivate it before going live.</p>
       <p>Test any provider, active or not, with <span class="ui">Test connection</span> under <span class="ui">Signers</span> in the Template Designer.</p>
       <p><b>Where settings and secrets are kept.</b> Each store holds something different:</p>
       <ul>
@@ -396,6 +508,9 @@ a { color: var(--accent-ink); }
         <li>Each generated document keeps a snapshot of the values and rule results it used, visible to its owner and admins.</li>
         <li>Errors show users a plain message. Technical detail goes to <span class="ui">Error Detail</span>, visible only to admins.</li>
         <li>E-signature notifications are only hints; DocBuilder always asks the service for the real status.</li>
+        <li>Data sources, Apex variables and Custom content also run with the sender's access. Data source values are passed to queries safely, never pasted into them.</li>
+        <li>Content from Apex classes and Visualforce pages has scripts, frames, forms and event handlers removed before it's printed or previewed.</li>
+        <li>Only admins (who have the Template Designer) choose which Apex classes and Visualforce pages a template uses.</li>
       </ul>
     </section>
 
@@ -410,7 +525,15 @@ a { color: var(--accent-ink); }
           <tr><td>Test connection: "Field DocBuilder_DropboxSign.ApiKey does not exist"</td><td>Add the <code>ApiKey</code> authentication parameter to the principal.</td></tr>
           <tr><td>Test connection: "refused the request (HTTP 401)"</td><td>The key or sign-in is wrong, or the user lacks the credential permission set.</td></tr>
           <tr><td>Signature status never changes</td><td>Schedule the status check, or click Check status now.</td></tr>
-          <tr><td>The button is missing on a record</td><td>Add the action to the page layout, and make sure an active template exists for that object.</td></tr>
+          <tr><td>The button is missing on a record, or a new template isn't offered</td><td>Add the action to the page layout. Only <b>active</b> templates are offered: activate the template in the designer.</td></tr>
+          <tr><td>After an update, the designer looks unchanged or controls are missing</td><td>The browser is showing a cached copy. Press Ctrl+Shift+R. In sandboxes, you can turn off <span class="ui">Setup › Session Settings › Enable secure and persistent browser caching</span>.</td></tr>
+          <tr><td>Signature requests show as completed but nobody got an email</td><td>They went through the Test provider. Activate your real provider and deactivate the Test provider.</td></tr>
+          <tr><td>"The signature provider … is not switched on"</td><td>Tick Active on that provider's row, or choose another provider.</td></tr>
+          <tr><td>"Data source … could not be loaded" or "needs an object"</td><td>Open Data sources and fix the object, a filter field or a typed value (dates as YYYY-MM-DD).</td></tr>
+          <tr><td>"Apex variable … is used but not defined" or "has no value called …"</td><td>Add the variable under Conditions › Apex variables, or choose one of the values the message lists.</td></tr>
+          <tr><td>"The Apex variable … failed" or "The Apex class … failed"</td><td>The class threw an error for this record. Give the message to the developer who wrote it.</td></tr>
+          <tr><td>A diagonal watermark prints across the page</td><td>Its text contains fields, which can't be drawn in advance. Remove the fields, or keep it across the page.</td></tr>
+          <tr><td>Word import: "This browser can't open Word files here"</td><td>Use a current Chrome, Edge, Firefox or Safari, or save the document as a Web Page (.htm) and import that.</td></tr>
         </tbody>
       </table></div>
     </section>

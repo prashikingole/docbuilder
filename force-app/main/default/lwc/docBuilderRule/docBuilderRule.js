@@ -81,6 +81,22 @@ export default class DocBuilderRule extends LightningElement {
         this._calcNames = Array.isArray(value) ? value : [];
     }
 
+    /** Apex check names offered as apex:Name (yes/no answers from code). */
+    @api
+    get apexChecks() {
+        return this._apexChecks || [];
+    }
+    set apexChecks(value) {
+        this._apexChecks = Array.isArray(value) ? value : [];
+    }
+
+    /** The type of an Apex variable (Boolean, Number, Text or Date) as the rule editor's value control needs it. */
+    apexType(name) {
+        const found = this.apexChecks.find((c) => (typeof c === 'string' ? c : c.name) === name);
+        const type = found && typeof found !== 'string' ? found.type : 'Boolean';
+        return { Number: 'Double', Text: 'String', Date: 'Date', Boolean: 'Boolean' }[type] || 'String';
+    }
+
     @api
     get rule() {
         return this.build();
@@ -133,7 +149,11 @@ export default class DocBuilderRule extends LightningElement {
             .map((f) => ({ label: f.label.replace(/ ID$/, '') + ' ›', value: RELATED + f.relationshipName }))
             .sort((a, b) => a.label.localeCompare(b.label));
         const calcs = this._calcNames.map((n) => ({ label: 'Calculated: ' + n, value: 'calc:' + n }));
-        return [...calcs, ...fields, ...lookups];
+        const checks = this.apexChecks.map((c) => {
+            const name = typeof c === 'string' ? c : c.name;
+            return { label: 'Apex: ' + name, value: 'apex:' + name };
+        });
+        return [...checks, ...calcs, ...fields, ...lookups];
     }
 
     fieldInfo(info, name) {
@@ -148,7 +168,8 @@ export default class DocBuilderRule extends LightningElement {
                 return { ...row, textField: true, textValue: row.needsValue };
             }
             const parts = (c.field || '').split('.');
-            const isRelated = parts.length === 2 && !c.field.startsWith('calc:');
+            const isApex = (c.field || '').startsWith('apex:');
+            const isRelated = parts.length === 2 && !c.field.startsWith('calc:') && !isApex;
             const top = isRelated ? RELATED + parts[0] : c.field;
             const options = [...base];
             if (top && !options.some((o) => o.value === top)) {
@@ -171,7 +192,10 @@ export default class DocBuilderRule extends LightningElement {
                     relOptions.unshift({ label: relValue, value: relValue });
                 }
             }
-            const type = field ? field.type : c.field && c.field.startsWith('calc:') ? 'Double' : 'String';
+            let type = field ? field.type : c.field && c.field.startsWith('calc:') ? 'Double' : 'String';
+            if (isApex) {
+                type = this.apexType(c.field.substring(5));
+            }
             const picklist = field && Array.isArray(field.values) && field.values.length ? field.values : null;
             const valueOptions = picklist ? picklist.map((v) => ({ label: v, value: v })) : null;
             if (valueOptions && c.value && !picklist.includes(c.value)) {
@@ -241,7 +265,7 @@ export default class DocBuilderRule extends LightningElement {
         }
         const field = this.fieldInfo(this.info, value);
         const change = { field: value, value: '' };
-        if (field && field.type === 'Boolean') {
+        if ((field && field.type === 'Boolean') || (value.startsWith('apex:') && this.apexType(value.substring(5)) === 'Boolean')) {
             change.value = 'true';
         }
         this.update(index, change);

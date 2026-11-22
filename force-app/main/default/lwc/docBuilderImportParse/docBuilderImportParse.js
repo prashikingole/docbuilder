@@ -19,6 +19,7 @@ const CLOSE = '\u0003';
 // Built with RegExp strings: the LWC compiler rejects some regex literals that contain a slash in a character class.
 const TOKEN_PATTERN = new RegExp(
     [
+        '<#\\s*(<[^#]*?>)\\s*#>', // DocuSign Gen: <# <Content Select="./Account/Name"/> #>
         '\\{\\{\\s*([^{}]+?)\\s*\\}\\}', // {{Field}}
         '\\{!\\s*([^{}]+?)\\s*\\}', // {!Field}
         '«\\s*([^«»]+?)\\s*»', // «Field»
@@ -56,7 +57,62 @@ function newModel(source) {
     return { source, items: [], tokens: [], header: '', footer: '', pageNumbers: false, images: 0, notes: [] };
 }
 
+const GEN_TAG = new RegExp('^<\\s*(/?)\\s*([A-Za-z]+)([\\s\\S]*?)/?\\s*>$');
+const GEN_SELECT = new RegExp('Select\\s*=\\s*["\u201C\u201D\']([^"\u201C\u201D\']*)["\u201C\u201D\']', 'i');
+const IF_START = new RegExp('^(?:#\\s*if\\s+(not\\s+)?|\\^\\s*)([A-Za-z_][\\w.:]*)$', 'i');
+
+/** A DocuSign Gen XPath such as ./Account/Name or ./OpportunityLineItems/OpportunityLineItem, as a field path. */
+function genPath(select) {
+    return String(select || '')
+        .replace(/\[[^\]]*\]/g, '')
+        .replace(/^\.?\/+/, '')
+        .replace(/@/g, '')
+        .split('/')
+        .filter((part) => part && part !== '.')
+        .join('.');
+}
+
+/** DocuSign Gen tags: Content prints a field, TableRow repeats a table row; others (conditions) are reported. */
+function classifyGen(tag) {
+    const m = GEN_TAG.exec(tag.trim());
+    if (!m) {
+        return { kind: 'control', tag };
+    }
+    const closing = m[1] === '/';
+    const element = m[2].toLowerCase();
+    const select = GEN_SELECT.exec(m[3] || '');
+    if (element === 'content' && !closing && select) {
+        return { kind: 'field', name: genPath(select[1]) };
+    }
+    if ((element === 'tablerow' || element === 'repeat') && !closing && select) {
+        return { kind: 'listStart', listName: genPath(select[1]).split('.')[0] };
+    }
+    if ((element === 'tablerow' || element === 'repeat') && closing) {
+        return { kind: 'listEnd' };
+    }
+    return { kind: 'control', tag: element };
+}
+
 function classify(name) {
+    if (name.startsWith('<')) {
+        return classifyGen(name);
+    }
+    // Conditions: {{#if Field}}, {{#if not Field}}, {{^Field}} (Mustache "if empty"), {{else}}, {{/if}}.
+    const ifStart = IF_START.exec(name);
+    if (ifStart) {
+        return { kind: 'ifStart', fieldName: ifStart[2], negate: !!ifStart[1] || name.trim().startsWith('^') };
+    }
+    if (/^#\s*if\b/i.test(name)) {
+        // A comparison such as {{#if Amount > 100}} has no direct equivalent: it stays an (unmatched) condition,
+        // so its {{/if}} still pairs up, its text prints, and it is reported for the admin to recreate.
+        return { kind: 'ifStart', complex: true, fieldName: name };
+    }
+    if (/^else$/i.test(name)) {
+        return { kind: 'else' };
+    }
+    if (/^\/\s*if$/i.test(name)) {
+        return { kind: 'ifEnd' };
+    }
     const start = LIST_START.exec(name);
     if (start) {
         return { kind: 'listStart', listName: start[1].trim() };
@@ -69,7 +125,10 @@ function classify(name) {
 
 function addToken(model, raw, name) {
     const clean = name.trim();
-    model.tokens.push({ raw, name: clean, ...classify(clean) });
+    const kind = classify(clean);
+    // Gen fields and conditions name the field to map; everything else keeps the token text as its name.
+    const fieldName = kind.kind === 'field' && kind.name ? kind.name : kind.fieldName || clean;
+    model.tokens.push({ raw, ...kind, name: fieldName });
     return model.tokens.length - 1;
 }
 
@@ -315,6 +374,17 @@ class WordReader {
             segments.push({ text, fmt });
         };
         const startResult = (field, fmt) => {
+            if (field.nested) {
+                // A field inside another field's instruction (e.g. a MERGEFIELD inside an IF) is part of that
+                // instruction, not of the text.
+                field.hide = true;
+                field.done = true;
+                return;
+            }
+            if (/^\s*IF\b/.test(field.instr)) {
+                // Word IF fields keep the text Word last showed; the condition itself is not converted.
+                this.model.wordIfs = (this.model.wordIfs || 0) + 1;
+            }
             const merge = MERGEFIELD.exec(field.instr);
             if (merge) {
                 const name = (merge[1] || merge[2]).trim();
@@ -358,7 +428,8 @@ class WordReader {
                             } else if (name === 'fldChar') {
                                 const type = attr(part, 'fldCharType');
                                 if (type === 'begin') {
-                                    fields.push({ instr: '', phase: 'instr' });
+                                    const parent = fields[fields.length - 1];
+                                    fields.push({ instr: '', phase: 'instr', nested: !!parent && (parent.phase === 'instr' || parent.nested) });
                                 } else if (type === 'separate' && fields.length) {
                                     const field = fields[fields.length - 1];
                                     field.phase = 'result';
@@ -639,8 +710,13 @@ export function parseHtml(html) {
 
 export function parseText(text) {
     const model = newModel('Text');
+    const blank = { kind: 'para', level: 0, align: '', list: null, html: '', text: '', formatted: false };
     for (const block of String(text).replace(/\r\n?/g, '\n').split(/\n\s*\n/)) {
         if (block.trim()) {
+            // A blank line between paragraphs is kept, as in the original.
+            if (model.items.length) {
+                model.items.push({ ...blank });
+            }
             model.items.push({ kind: 'para', level: 0, align: '', list: null, ...segmentsToContent(model, [{ text: block.trim(), fmt: null }]) });
         }
     }

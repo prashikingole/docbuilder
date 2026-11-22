@@ -16,9 +16,40 @@
         <template lwc:if={isSource}>
             <div class="body">
                 <p class="hint">
-                    Bring over a template made in Word, Conga Composer, DocuSign Gen or another tool. Merge fields such as {fieldExamples} and Word MERGEFIELD fields are recognised and matched to Salesforce fields in the next step.
+                    Bring over a template made in Word, Conga Composer, DocuSign Gen, OmniStudio, Salesforce CPQ or another tool. Merge fields such as {fieldExamples} and Word MERGEFIELD fields are recognised and matched to Salesforce fields in the next step.
                     It is created as a draft, so nothing changes for users until you activate it.
                 </p>
+                <div class="seg" role="group" aria-label="Where the template comes from">
+                    <template for:each={modeButtons} for:item="m">
+                        <button key={m.value} type="button" class={m.cls} data-mode={m.value} aria-pressed={m.pressed} onclick={handleMode}>{m.label}</button>
+                    </template>
+                </div>
+
+                <template lwc:if={isOrgMode}>
+                    <div class="source-card">
+                        <h3>A template in this org</h3>
+                        <p class="hint">Salesforce CPQ quote templates are rebuilt from their sections, line columns and quote terms. Conga Composer, DocuSign Gen and OmniStudio templates are read from their attached Word or HTML file.</p>
+                        <template lwc:if={noOrgTemplates}>
+                            <p class="hint">No CPQ, Conga, DocuSign Gen or OmniStudio templates were found in this org (or those tools aren't installed). Download the template file from the other tool and use "A file or pasted text".</p>
+                        </template>
+                        <template lwc:else>
+                            <lightning-combobox label="Template" placeholder="Choose a template" options={orgOptions} value={orgPick} onchange={handleOrgPick}></lightning-combobox>
+                        </template>
+                    </div>
+                </template>
+
+                <template lwc:if={isStandardMode}>
+                    <div class="source-card">
+                        <h3>Salesforce standard quote</h3>
+                        <p class="hint">
+                            Salesforce doesn't make its standard quote templates readable by other apps, so this creates a Quote template laid out the same way: your company details, quote number and dates,
+                            prepared by and contact, bill-to and ship-to, the line items (description and discount columns only when used), totals (tax and shipping only when used), terms and signing lines.
+                            Change anything in the designer afterwards.
+                        </p>
+                    </div>
+                </template>
+
+                <template lwc:if={isFileMode}>
                 <div class="source">
                     <div class="source-card">
                         <h3>A file</h3>
@@ -32,21 +63,24 @@
                         <lightning-textarea variant="label-hidden" label="Pasted template" value={pasted} data-field="pasted" class="paste" onchange={handleInput}></lightning-textarea>
                     </div>
                 </div>
+                </template>
                 <div class="pair">
                     <lightning-input label="Template name" value={name} data-field="name" onchange={handleInput}></lightning-input>
-                    <lightning-input
-                        label="Built on (object API name)"
-                        placeholder="e.g. Opportunity, Quote or SBQQ__Quote__c"
-                        value={baseObject}
-                        data-field="baseObject"
-                        field-level-help="The record type documents are generated from. For a DocBuilder export this can be left blank to use the one in the file."
-                        onchange={handleInput}
-                    ></lightning-input>
+                    <template lwc:if={needsObject}>
+                        <lightning-input
+                            label="Built on (object API name)"
+                            placeholder="e.g. Opportunity, Quote or SBQQ__Quote__c"
+                            value={baseObject}
+                            data-field="baseObject"
+                            field-level-help="The record type documents are generated from. For a DocBuilder export, or a template whose tool records it, this can be left blank."
+                            onchange={handleInput}
+                        ></lightning-input>
+                    </template>
                 </div>
             </div>
             <footer class="foot">
                 <button type="button" class="btn" onclick={handleClose}>Cancel</button>
-                <button type="button" class="btn primary" onclick={handleRead}>Next</button>
+                <button type="button" class="btn primary" onclick={handleRead}>{nextLabel}</button>
             </footer>
         </template>
 

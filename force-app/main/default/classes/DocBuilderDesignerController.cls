@@ -124,6 +124,32 @@ public with sharing class DocBuilderDesignerController {
         }
     }
 
+    /** Templates in installed tools (CPQ, Conga, DocuSign Gen, OmniStudio) that can be imported directly. */
+    @AuraEnabled
+    public static List<DocBuilderImportSources.Candidate> listImportSources() {
+        try {
+            return DocBuilderImportSources.candidates();
+        } catch (Exception e) {
+            throw userError(e);
+        }
+    }
+
+    /** The content of one of those templates, for the Import wizard to read. */
+    @AuraEnabled
+    public static DocBuilderImportSources.Loaded loadImportSource(String source, Id recordId) {
+        try {
+            return DocBuilderImportSources.load(source, recordId);
+        } catch (Exception e) {
+            throw userError(e);
+        }
+    }
+
+    /** Creates a draft Quote template laid out like Salesforce's standard quote template. */
+    @AuraEnabled
+    public static TemplateState createStandardQuoteTemplate(String name) {
+        return importTemplate(String.isBlank(name) ? 'Standard Quote' : name, 'Quote', 'Quote {{QuoteNumber}}', DocBuilderImportSources.standardQuoteBody());
+    }
+
     /** Suggested Salesforce field for each merge field found in an imported template (see DocBuilderImport). */
     @AuraEnabled
     public static Map<String, String> suggestFields(String objectName, List<String> tokens, String listName) {
@@ -515,16 +541,167 @@ public with sharing class DocBuilderDesignerController {
         return result;
     }
 
-    /** Health check: returns null when every field the template uses exists and is readable, otherwise the problem. */
+    /** Health check: returns null when every field, data source and custom block the template uses works, otherwise the problem. */
     @AuraEnabled
     public static String check(String bodyJson, String baseObject) {
         try {
             Map<String, Object> body = (Map<String, Object>) JSON.deserializeUntyped(bodyJson);
             DocBuilderPrepare.apply(body, null, null);
-            return new DocBuilderContext(baseObject, null, body, null).check();
+            DocBuilderContext ctx = new DocBuilderContext(baseObject, null, body, null);
+            String problem = ctx.check();
+            if (problem == null) {
+                problem = ctx.checkApexChecks();
+            }
+            return problem != null ? problem : checkCustomBlocks(body);
         } catch (Exception e) {
             return e.getMessage();
         }
+    }
+
+    static String checkCustomBlocks(Map<String, Object> body) {
+        for (Object b : DocBuilderContext.asList(body.get('blocks'))) {
+            Map<String, Object> blk = (Map<String, Object>) b;
+            if (blk.get('type') != 'custom') {
+                continue;
+            }
+            if (blk.get('source') == 'visualforce') {
+                String page = (String) blk.get('page');
+                if (String.isBlank(page)) {
+                    return 'A Custom content block has no Visualforce page chosen.';
+                }
+                if ([SELECT COUNT() FROM ApexPage WHERE Name = :page.trim() WITH USER_MODE] == 0) {
+                    return 'The Visualforce page "' + page + '" does not exist in this org.';
+                }
+            } else {
+                String className = (String) blk.get('className');
+                String problem = String.isBlank(className) ? 'A Custom content block has no Apex class chosen.' : DocBuilderRenderer.checkContentProvider(className);
+                if (problem != null) {
+                    return problem;
+                }
+            }
+        }
+        return null;
+    }
+
+    public class Choice {
+        @AuraEnabled
+        public String label;
+        @AuraEnabled
+        public String value;
+        Choice(String label, String value) {
+            this.label = label;
+            this.value = value;
+        }
+    }
+
+    static final Pattern NOISE_OBJECTS = Pattern.compile('(?i).*(Share|History|Feed|ChangeEvent|Tag|__mdt|__e|__x|__b)$');
+
+    /** Objects the current user can query, for a data source's "Records of" list. */
+    @AuraEnabled(cacheable=true)
+    public static List<Choice> listObjects() {
+        List<Choice> choices = new List<Choice>();
+        for (Schema.SObjectType t : Schema.getGlobalDescribe().values()) {
+            Schema.DescribeSObjectResult d = t.getDescribe(SObjectDescribeOptions.DEFERRED);
+            if (!d.isQueryable() || !d.isAccessible() || d.isCustomSetting() || NOISE_OBJECTS.matcher(d.getName()).matches()) {
+                continue;
+            }
+            choices.add(new Choice(d.getLabel() + ' (' + d.getName() + ')', d.getName()));
+        }
+        choices.sort(new ChoiceOrder());
+        return choices;
+    }
+
+    class ChoiceOrder implements Comparator<Choice> {
+        public Integer compare(Choice a, Choice b) {
+            return a.label.toLowerCase().compareTo(b.label.toLowerCase());
+        }
+    }
+
+    /** Visualforce pages in the org, for a Custom content block. */
+    @AuraEnabled(cacheable=true)
+    public static List<Choice> listVisualforcePages() {
+        List<Choice> choices = new List<Choice>();
+        for (ApexPage p : [SELECT Name, MasterLabel, NamespacePrefix FROM ApexPage WITH USER_MODE ORDER BY MasterLabel LIMIT 1000]) {
+            String name = String.isBlank(p.NamespacePrefix) ? p.Name : p.NamespacePrefix + '__' + p.Name;
+            choices.add(new Choice(p.MasterLabel + ' (' + name + ')', name));
+        }
+        return choices;
+    }
+
+    /**
+     * Saves a diagonal watermark image drawn by the designer (a PNG with the words at 45 degrees), attached to the
+     * template so everyone who can see the template can print it. Returns the ContentVersion Id.
+     */
+    @AuraEnabled
+    public static Id saveWatermarkImage(Id templateId, String base64Png) {
+        try {
+            DocTemplate__c template = [SELECT Id FROM DocTemplate__c WHERE Id = :templateId WITH USER_MODE];
+            if (String.isBlank(base64Png) || base64Png.length() > 2000000) {
+                throw new DocBuilder.DocBuilderException('The watermark image is empty or too large.');
+            }
+            Blob image = EncodingUtil.base64Decode(base64Png);
+            // Only a PNG is accepted: its first bytes are always 89 50 4E 47.
+            if (!EncodingUtil.convertToHex(image).startsWith('89504e47')) {
+                throw new DocBuilder.DocBuilderException('The watermark image is not a PNG.');
+            }
+            ContentVersion file = new ContentVersion(Title = 'DocBuilder watermark', PathOnClient = 'watermark.png', VersionData = image, FirstPublishLocationId = template.Id);
+            insert as user file;
+            return file.Id;
+        } catch (Exception e) {
+            throw userError(e);
+        }
+    }
+
+    /** Null when the Apex class can be used for Apex variables, otherwise why not. */
+    @AuraEnabled
+    public static String checkConditionClass(String className) {
+        try {
+            DocBuilderContext.apexProvider(className);
+            return null;
+        } catch (Exception e) {
+            return e.getMessage();
+        }
+    }
+
+    public class ApexClassInfo {
+        @AuraEnabled
+        public Boolean ok;
+        @AuraEnabled
+        public String message;
+        /** 'values' for a DocBuilderVariableProvider, 'check' for a yes/no DocBuilderConditionProvider. */
+        @AuraEnabled
+        public String kind;
+        @AuraEnabled
+        public List<Choice> variables = new List<Choice>();
+    }
+
+    /** What an Apex class offers to Apex variables: its named values and their types, or a single yes/no. */
+    @AuraEnabled
+    public static ApexClassInfo describeApexClass(String className) {
+        ApexClassInfo info = new ApexClassInfo();
+        try {
+            Map<String, String> offered = DocBuilderContext.variablesOf(className);
+            info.ok = true;
+            info.kind = offered == null ? 'check' : 'values';
+            if (offered != null) {
+                List<String> names = new List<String>(offered.keySet());
+                names.sort();
+                for (String name : names) {
+                    // The label carries the type so the designer can offer matching comparisons.
+                    info.variables.add(new Choice(String.isBlank(offered.get(name)) ? 'Text' : offered.get(name), name));
+                }
+            }
+        } catch (Exception e) {
+            info.ok = false;
+            info.message = e.getMessage();
+        }
+        return info;
+    }
+
+    /** Null when the Apex class can be used in a Custom content block, otherwise why not. */
+    @AuraEnabled
+    public static String checkContentClass(String className) {
+        return DocBuilderRenderer.checkContentProvider(className);
     }
 
     @AuraEnabled

@@ -178,6 +178,32 @@ h3 {
     border-color: var(--accent);
     color: #fff;
 }
+.seg {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border: 1px solid var(--line);
+    border-radius: 0.75rem;
+    align-self: flex-start;
+}
+.seg-btn {
+    min-height: 2rem;
+    padding: 0 0.875rem;
+    border: 0;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-weight: 600;
+    font-size: 0.8125rem;
+    cursor: pointer;
+}
+.seg-btn.on {
+    background: var(--ink);
+    color: #fff;
+}
+.seg-btn:focus-visible,
 .btn:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;

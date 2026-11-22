@@ -355,6 +355,65 @@ private class DocBuilderDesignerTest {
     }
 
     @IsTest
+    static void diagonalWatermarksPrintTheirImageAndFallBackToTextWithFields() {
+        Opportunity opp = makeData();
+        Map<String, Object> mark = new Map<String, Object>{
+            'text' => 'CONFIDENTIAL',
+            'direction' => 'diagonal',
+            'size' => 'medium',
+            'shade' => 'dark',
+            'imageId' => '068000000000003AAA',
+            'draftImageId' => '068000000000004AAA'
+        };
+        Map<String, Object> body = new Map<String, Object>{
+            'blocks' => new List<Object>{ new Map<String, Object>{ 'id' => 'a', 'type' => 'text', 'text' => 'Body' } },
+            'page' => new Map<String, Object>{ 'watermark' => mark }
+        };
+        Id templateId = DocBuilderSamples.createTemplate('Diagonal', 'Opportunity', null, JSON.serialize(body));
+        DocBuilder.Request req = new DocBuilder.Request();
+        req.templateId = templateId;
+        req.recordId = opp.Id;
+        DocBuilder.Result res = DocBuilder.generate(req);
+        System.assert(res.success, res.errorMessage);
+        // A4 portrait, normal margins: a 170 x 257 mm content area; medium spans 65% of the narrower side.
+        String html = fileText(res.contentVersionId);
+        System.assert(html.contains('version/download/068000000000003AAA" style="position:fixed;left:29.8mm;top:73.3mm;width:110.5mm;height:110.5mm;z-index:-1"'), html);
+
+        req.draft = true;
+        res = DocBuilder.generate(req);
+        System.assert(fileText(res.contentVersionId).contains('version/download/068000000000004AAA'), 'Drafts use the DRAFT image');
+
+        String preview = DocBuilderEngine.previewHtml(JSON.serialize(body), 'Opportunity', opp.Id, null, null);
+        System.assert(preview.contains('class="pv-watermark diag size-medium shade-dark"'), preview);
+
+        // Text with fields cannot be drawn ahead, so it prints across the page in the chosen size and shade.
+        mark.put('text', 'FOR {{Name}}');
+        mark.remove('imageId');
+        String across = DocBuilderEngine.previewHtml(JSON.serialize(body), 'Opportunity', opp.Id, null, null);
+        System.assert(across.contains('FOR Deal B'), across);
+        Id textTemplate = DocBuilderSamples.createTemplate('Across', 'Opportunity', null, JSON.serialize(body));
+        req.templateId = textTemplate;
+        req.draft = false;
+        res = DocBuilder.generate(req);
+        String text = fileText(res.contentVersionId);
+        System.assert(text.contains('color:#AEB5C2') && text.contains('FOR Deal B'), text);
+
+        // The image saved by the designer must be a PNG and is attached to the template.
+        String png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+        Id imageId = DocBuilderDesignerController.saveWatermarkImage(templateId, png);
+        Id documentId = [SELECT ContentDocumentId FROM ContentVersion WHERE Id = :imageId].ContentDocumentId;
+        System.assertEquals(1, [SELECT COUNT() FROM ContentDocumentLink WHERE ContentDocumentId = :documentId AND LinkedEntityId = :templateId]);
+        for (String bad : new List<String>{ EncodingUtil.base64Encode(Blob.valueOf('<svg onload=x>')), '' }) {
+            try {
+                DocBuilderDesignerController.saveWatermarkImage(templateId, bad);
+                System.assert(false, 'Only PNG images are accepted');
+            } catch (AuraHandledException e) {
+                System.assert(e.getMessage().contains('PNG') || e.getMessage().contains('empty'), e.getMessage());
+            }
+        }
+    }
+
+    @IsTest
     static void pageSetupHeaderFooterWatermarkImagesAndRichText() {
         Opportunity opp = makeData();
         Map<String, Object> page = new Map<String, Object>{
