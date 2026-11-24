@@ -252,7 +252,37 @@ a { color: var(--accent-ink); }
       <p>The same list can feed several tables, each with its own filter, sort and totals; for example, products split into hardware and services.</p>
       <p><b>Rows from a child of a child, or from any matching records:</b> create a <a href="#datasources">data source</a> and choose it in <span class="ui">Rows come from</span>. For example, every product on every quote of the account: a data source of <b>Quote Line Item</b> where <i>Quote › Account ID</i> equals the record's <i>Account ID</i>, shown in one table grouped by <i>Quote › Name</i> with a subtotal per quote.</p>
       <h3>Calculated values</h3>
-      <p>Under <span class="ui">Calculated values</span>: count, sum, average, lowest or highest over a list, with an optional row filter; or a formula.</p>
+      <p>Under <span class="ui">Calculated values</span>: count, sum, average, lowest or highest over a list, with an optional row filter; a formula; or <b>Text by value</b> (below).</p>
+      <p>Use a calculated value:</p>
+      <ul>
+        <li>in text: <code>{{calc:Net}}</code> or <code>{{calc:Net|currency}}</code>;</li>
+        <li>in any rule, where it's listed as <span class="ui">Calculated: Net</span>;</li>
+        <li>in later formulas;</li>
+        <li>as a table's summary row.</li>
+      </ul>
+      <h3>Text by value: different wording for each value of a field</h3>
+      <p>Turn a field's value into wording, without a condition for each value. For example, Payment Terms "Net 30" prints "Payment is due within 30 days of the invoice date".</p>
+      <ol>
+        <li>Under Calculated values, click <span class="ui">Add calculated value</span>, name it (for example <code>PaymentWording</code>), and set <span class="ui">Type</span> to <span class="ui">Text by value</span>.</li>
+        <li>In <span class="ui">Based on</span>, pick the field. It can be on the record or a related record, such as Account › Industry.</li>
+        <li>For a picklist, click <span class="ui">Add a row for every value</span>. Otherwise use <span class="ui">Add row</span>.</li>
+        <li>For each value, type the text to print. The text can contain fields, for example <code>Due by {{ExpirationDate}}</code>.</li>
+        <li>In <span class="ui">Otherwise</span>, type the text for any other value, or leave it empty to print nothing.</li>
+      </ol>
+      <p>How values match:</p>
+      <ul>
+        <li>Case doesn't matter.</li>
+        <li>Numbers match as numbers: 3000 matches 3000.00.</li>
+        <li>Checkboxes use Yes (ticked) or No.</li>
+        <li>For a multi-select picklist, a row matches when its value is one of those selected.</li>
+        <li>A row with an <i>(empty)</i> value matches when the field is blank.</li>
+      </ul>
+      <p>Then use it like any calculated value:</p>
+      <ul>
+        <li><code>{{calc:PaymentWording}}</code> in text (<code>|upper</code> or <code>|lower</code> also work);</li>
+        <li>in rules, for example <span class="ui">Calculated: PaymentWording</span> contains "30 days".</li>
+      </ul>
+      <p>Pick a record in <span class="ui">Try them with this record</span> to see the result as you set it up. A formula can't use a Text by value, because formulas work with numbers.</p>
       <p>In the formula bar, start typing a field's name or label and pick it from the suggestions. Related records open with <span class="ui">›</span>, for example Account › Annual Revenue. Under the bar, the formula is read back with field labels; anything that isn't a field or function is marked red with the reason. Pick a record in <span class="ui">Try them with this record</span> to see each value worked out as you type.</p>
       <div class="table-wrap"><table>
         <thead><tr><th>You can use</th><th>Example</th></tr></thead>

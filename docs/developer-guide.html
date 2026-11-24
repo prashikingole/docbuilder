@@ -161,7 +161,11 @@ a { color: var(--accent-ink); }
   "calculations": [
     { "name": "Subtotal", "type": "count | sum | avg | min | max", "source": "QuoteLineItems",
       "field": "TotalPrice", "filter": RULE, "format": "currency" },
-    { "name": "Net", "type": "formula", "expression": "calc:Subtotal * 0.9" }
+    { "name": "Net", "type": "formula", "expression": "calc:Subtotal * 0.9" },
+    { "name": "PaymentWording", "type": "lookup", "field": "Payment_Terms__c",
+      "cases": [ { "value": "Net 30", "text": "Due within 30 days of {{InvoiceDate__c}}" },
+                 { "value": "", "text": "Terms to be agreed" } ],
+      "otherwise": "Due on receipt" }
   ],
   "conditions": [ { "name": "CityOk", "rule": RULE } ],
   "signers": [
@@ -203,6 +207,15 @@ op: eq, ne, gt, ge, lt, le, contains, blank, notBlank</code></pre>
       <p>Values compare by type: numbers numerically, dates as dates (<code>YYYY-MM-DD</code>), and text case-insensitively. In a table's <code>rowFilter</code> or a calculation's <code>filter</code>, paths are on the row.</p>
       <h3>Formulas</h3>
       <p>Grammar: numbers, field paths, <code>calc:Name</code> (defined earlier in the list), <code>+ - * /</code>, brackets, comparisons <code>= == != &lt;&gt; &lt; &lt;= &gt; &gt;=</code> (1 when true, 0 when false), and the functions ROUND(x[, places]), ABS, CEILING, FLOOR, MIN(…), MAX(…), IF(test, then, else), AND(…), OR(…), NOT(x). Empty fields count as 0; division by zero gives 0.</p>
+      <h3>Text by value</h3>
+      <p>A <code>lookup</code> calculation produces text instead of a number, and is kept in <code>DocBuilderContext.textCalcs</code>.</p>
+      <ul>
+        <li><b>Field:</b> <code>field</code> can be a record path, a related path, <code>ds:Name.Field</code>, <code>apex:Name</code> or <code>calc:Name</code> (an earlier value).</li>
+        <li><b>Matching:</b> the first case whose <code>value</code> matches wins: case-insensitive, numerically for numbers, any selected value for multi-select picklists, and an empty value matches blank. Otherwise <code>otherwise</code> is used.</li>
+        <li><b>Fields in the text:</b> the text is merged, so it can contain fields.</li>
+        <li><b>Where it works:</b> <code>{{calc:Name}}</code> (with <code>upper</code> or <code>lower</code>), rules (compared as text), the snapshot and <code>calcValues</code>.</li>
+        <li><b>Formulas:</b> a formula that references it fails with "is text, so a formula can't use it".</li>
+      </ul>
       <h3>Table totals</h3>
       <p>A table total whose calculation is a count, sum, avg, min or max over the table's own <code>source</code> is computed again over the rows the table shows (after <code>rowFilter</code>, intersected with the calculation's own <code>filter</code>). Formulas and totals over other lists print their document-wide value.</p>
       <h3>Conditions the designer creates</h3>

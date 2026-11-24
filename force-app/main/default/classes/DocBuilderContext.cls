@@ -22,6 +22,8 @@ public with sharing class DocBuilderContext {
     public SObject record;
     public Map<String, List<SObject>> lists = new Map<String, List<SObject>>();
     public Map<String, Decimal> calcs = new Map<String, Decimal>();
+    /** Results of Text by value calculations (type lookup), by name. */
+    public Map<String, String> textCalcs = new Map<String, String>();
     public Map<String, Object> usedValues = new Map<String, Object>();
     public Map<String, Object> logicLog = new Map<String, Object>();
 
@@ -640,6 +642,20 @@ public with sharing class DocBuilderContext {
         for (Object c : asList(body.get('calculations'))) {
             Map<String, Object> calc = (Map<String, Object>) c;
             calcFormats.put((String) calc.get('name'), (String) calc.get('format'));
+            if ('lookup'.equalsIgnoreCase((String) calc.get('type'))) {
+                // Text by value: the field it reads, and any fields used in its texts.
+                String field = (String) calc.get('field');
+                if (String.isNotBlank(field) && isDataSource(field)) {
+                    addDataSourceField(field);
+                } else if (String.isNotBlank(field) && !field.startsWith('calc:') && !field.startsWith('apex:')) {
+                    addField(parentFields, field);
+                }
+                for (Object k : asList(calc.get('cases'))) {
+                    addTokens((String) ((Map<String, Object>) k).get('text'), null);
+                }
+                addTokens((String) calc.get('otherwise'), null);
+                continue;
+            }
             if ('formula'.equalsIgnoreCase((String) calc.get('type'))) {
                 Matcher m = EXPR_IDENT.matcher(calc.get('expression') == null ? '' : (String) calc.get('expression'));
                 while (m.find()) {
@@ -877,6 +893,10 @@ public with sharing class DocBuilderContext {
                 calcs.put(name, new ExprParser((String) calc.get('expression'), this).evaluate());
                 continue;
             }
+            if (type == 'lookup') {
+                textCalcs.put(name, lookupText(calc));
+                continue;
+            }
             List<SObject> rows = rowsFor((String) calc.get('source'), calc.get('filter'));
             calcs.put(name, aggregate(name, type, (String) calc.get('field'), rows));
             // With no format chosen, a total of money or percentages prints like the field it adds up.
@@ -1082,7 +1102,75 @@ public with sharing class DocBuilderContext {
         return String.valueOf(value);
     }
 
+    /**
+     * Text by value: the text of the first row whose value matches the field, otherwise the "otherwise" text.
+     * Values match ignoring case; numbers match as numbers; a multi-select picklist matches any selected value;
+     * a row with an empty value matches when the field is empty. Fields in the texts are filled in.
+     */
+    String lookupText(Map<String, Object> calc) {
+        String field = (String) calc.get('field');
+        Object raw;
+        if (String.isNotBlank(field)) {
+            raw = field.startsWith('calc:') ? calcValue(field.substring(5)) : resolve(record, field);
+            if (!field.startsWith('calc:') && !field.startsWith('apex:') && !isDataSource(field)) {
+                usedValues.put(field, raw);
+            }
+        }
+        String actual = raw == null ? '' : String.valueOf(raw).trim();
+        Set<String> selected = new Set<String>();
+        for (String part : actual.split(';')) {
+            selected.add(part.trim().toLowerCase());
+        }
+        Decimal actualNumber = numberOrNull(raw);
+        for (Object k : asList(calc.get('cases'))) {
+            Map<String, Object> row = (Map<String, Object>) k;
+            String want = row.get('value') == null ? '' : String.valueOf(row.get('value')).trim();
+            Decimal wantNumber = numberOrNull(want);
+            Boolean matches =
+                actual.equalsIgnoreCase(want) ||
+                (want != '' && selected.contains(want.toLowerCase())) ||
+                (actualNumber != null && wantNumber != null && actualNumber == wantNumber);
+            if (matches) {
+                return mergeText((String) row.get('text'), record, false);
+            }
+        }
+        return mergeText((String) calc.get('otherwise'), record, false);
+    }
+
+    static Decimal numberOrNull(Object value) {
+        if (value == null || value instanceof Boolean || value instanceof Date || value instanceof Datetime) {
+            return null;
+        }
+        try {
+            return Decimal.valueOf(String.valueOf(value).trim());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Every calculated value, numbers and texts, for the audit snapshot and the designer. */
+    public Map<String, Object> allCalcValues() {
+        Map<String, Object> all = new Map<String, Object>();
+        for (String name : calcs.keySet()) {
+            all.put(name, calcs.get(name));
+        }
+        for (String name : textCalcs.keySet()) {
+            all.put(name, textCalcs.get(name));
+        }
+        return all;
+    }
+
+    /** A calculated value: a number, or the text of a Text by value calculation. */
+    public Object calcValue(String name) {
+        return textCalcs.containsKey(name) ? (Object) textCalcs.get(name) : (Object) calcs.get(name);
+    }
+
     public String formatCalc(String name, String format) {
+        if (textCalcs.containsKey(name)) {
+            String text = textCalcs.get(name);
+            // Text takes the text formats only (upper, lower); number formats leave it as it is.
+            return String.isNotBlank(format) && (format.equalsIgnoreCase('upper') || format.equalsIgnoreCase('lower')) ? applyFormat(text, format) : text;
+        }
         if (!calcs.containsKey(name)) {
             throw new DocBuilder.DocBuilderException('Calculated value "' + name + '" is not defined in the template.');
         }
@@ -1397,7 +1485,7 @@ public with sharing class DocBuilderContext {
             Boolean isApex = field.startsWith('apex:');
             Object actual;
             if (isCalc) {
-                actual = calcs.get(field.substring(5));
+                actual = calcValue(field.substring(5));
             } else if (isApex) {
                 actual = apexValue(field.substring(5));
             } else {
@@ -1789,6 +1877,9 @@ public with sharing class DocBuilderContext {
             }
             if (token.startsWith('calc:')) {
                 String name = token.substring(5);
+                if (ctx.textCalcs.containsKey(name)) {
+                    throw new DocBuilder.DocBuilderException('Calculated value "' + name + '" is text, so a formula can\'t use it. Use it in text or in a rule instead.');
+                }
                 if (!ctx.calcs.containsKey(name)) {
                     throw new DocBuilder.DocBuilderException('Formula uses "' + name + '" before it is calculated. Move it above this formula.');
                 }
@@ -1835,7 +1926,7 @@ public with sharing class DocBuilderContext {
             'recordId' => recordId,
             'values' => usedValues,
             'lists' => listData,
-            'calculations' => calcs,
+            'calculations' => allCalcValues(),
             'logic' => logicLog
         };
         String serialized = JSON.serializePretty(snapshot);

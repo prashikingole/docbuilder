@@ -497,7 +497,7 @@ public with sharing class DocBuilderDesignerController {
             Map<String, Object> body = (Map<String, Object>) JSON.deserializeUntyped(bodyJson);
             DocBuilderContext ctx = new DocBuilderContext(baseObject, recordId, body, null);
             ctx.load();
-            for (String name : ctx.calcs.keySet()) {
+            for (String name : ctx.allCalcValues().keySet()) {
                 result.values.put(name, ctx.formatCalc(name, null));
             }
             result.ok = true;

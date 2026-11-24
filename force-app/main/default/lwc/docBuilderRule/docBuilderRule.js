@@ -81,6 +81,15 @@ export default class DocBuilderRule extends LightningElement {
         this._calcNames = Array.isArray(value) ? value : [];
     }
 
+    /** Calculated values that are text (Text by value), so they get a text value box rather than a number box. */
+    @api
+    get textCalcs() {
+        return this._textCalcs || [];
+    }
+    set textCalcs(value) {
+        this._textCalcs = Array.isArray(value) ? value : [];
+    }
+
     /** Apex check names offered as apex:Name (yes/no answers from code). */
     @api
     get apexChecks() {
@@ -193,6 +202,10 @@ export default class DocBuilderRule extends LightningElement {
                 }
             }
             let type = field ? field.type : c.field && c.field.startsWith('calc:') ? 'Double' : 'String';
+            if (c.field && c.field.startsWith('calc:') && this.textCalcs.includes(c.field.substring(5))) {
+                // Text by value results are text.
+                type = 'String';
+            }
             if (isApex) {
                 type = this.apexType(c.field.substring(5));
             }

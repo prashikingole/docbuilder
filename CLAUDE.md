@@ -129,6 +129,10 @@ Packaged Dropbox Sign credential:
   - `field`: a path, `calc:Name`, `ds:Name.Field` or `apex:Name`.
   - `logic`: like `1 AND (2 OR NOT 3)`.
   - Comparisons: dates as dates, numbers numerically, text case-insensitively.
+- `calculations[]` of type `lookup` ("Text by value"): `{ field, cases: [{ value, text }], otherwise }`.
+  - Gives text, kept in `ctx.textCalcs`; `calcValue()`, `formatCalc()` and `allCalcValues()` handle both kinds.
+  - Formulas can't use it.
+  - The rule editor gets text calc names via `text-calcs`.
 - `calculations[]`: count, sum, avg, min, max over a `source` (relationship or `ds:Name`) with optional `filter`,
   or `formula` (`expression` with fields, `calc:Name`, `+ - * /`, comparisons giving 1/0, ROUND, ABS, CEILING,
   FLOOR, MIN, MAX, IF, AND, OR, NOT). A formula only sees calculations above it. Nesting capped at 40.

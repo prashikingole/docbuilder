@@ -337,6 +337,49 @@ public class DocBuilderSourcesTest {
         System.assert(html.indexOf('>Operations<') < html.indexOf('>Sales<'), 'Groups follow the sort order');
     }
 
+    static Map<String, Object> textByValue(String name, String field, List<List<String>> rows, String otherwise) {
+        List<Object> cases = new List<Object>();
+        for (List<String> row : rows) {
+            cases.add(new Map<String, Object>{ 'value' => row[0], 'text' => row[1] });
+        }
+        return new Map<String, Object>{ 'name' => name, 'type' => 'lookup', 'field' => field, 'cases' => cases, 'otherwise' => otherwise };
+    }
+
+    @IsTest
+    static void textByValueTurnsAFieldIntoWording() {
+        Opportunity opp = makeData();
+        List<Object> calculations = new List<Object>{
+            textByValue('StageText', 'StageName', new List<List<String>>{ new List<String>{ 'prospecting', 'Early stage for {{Name}}' }, new List<String>{ 'Closed Won', 'Won' } }, 'Other stage'),
+            textByValue('IndustryText', 'Account.Industry', new List<List<String>>{ new List<String>{ '', 'No industry set' }, new List<String>{ 'Energy', 'Energy' } }, 'Some industry'),
+            textByValue('AmountBand', 'Amount', new List<List<String>>{ new List<String>{ '3000', 'Exactly three thousand' } }, 'Another amount'),
+            textByValue('Visibility', 'IsPrivate', new List<List<String>>{ new List<String>{ 'true', 'Private deal' } }, 'Public deal'),
+            textByValue('Chained', 'calc:AmountBand', new List<List<String>>{ new List<String>{ 'Exactly three thousand', 'CHAINED-OK' } }, '')
+        };
+        Map<String, Object> early = new Map<String, Object>{ 'conditions' => new List<Object>{ new Map<String, Object>{ 'field' => 'calc:StageText', 'op' => 'contains', 'value' => 'early' } } };
+        Map<String, Object> won = new Map<String, Object>{ 'conditions' => new List<Object>{ new Map<String, Object>{ 'field' => 'calc:StageText', 'op' => 'eq', 'value' => 'Won' } } };
+        List<Object> blocks = new List<Object>{
+            new Map<String, Object>{ 'id' => 'a', 'type' => 'text', 'text' => '[{{calc:StageText}}] [{{calc:IndustryText}}] [{{calc:AmountBand}}] [{{calc:Visibility}}] [{{calc:Chained}}] [{{calc:StageText|upper}}]' },
+            new Map<String, Object>{ 'id' => 'b', 'type' => 'text', 'text' => 'RULE-EARLY', 'showIf' => early },
+            new Map<String, Object>{ 'id' => 'c', 'type' => 'text', 'text' => 'RULE-WON', 'showIf' => won }
+        };
+        String body = JSON.serialize(new Map<String, Object>{ 'blocks' => blocks, 'calculations' => calculations });
+        System.assertEquals(null, DocBuilderDesignerController.check(body, 'Opportunity'));
+        String html = DocBuilderEngine.previewHtml(body, 'Opportunity', opp.Id, null, null);
+        System.assert(
+            html.contains('[Early stage for Deal DS] [No industry set] [Exactly three thousand] [Public deal] [CHAINED-OK] [EARLY STAGE FOR DEAL DS]'),
+            'Values match ignoring case, numbers as numbers, an empty value means blank, fields in the text are filled in: ' + html
+        );
+        System.assert(html.contains('RULE-EARLY') && !html.contains('RULE-WON'), 'Rules can use the text: ' + html);
+
+        DocBuilderDesignerController.CalcResult live = DocBuilderDesignerController.calcValues(body, 'Opportunity', opp.Id);
+        System.assert(live.ok, live.message);
+        System.assertEquals('Early stage for Deal DS', live.values.get('StageText'));
+
+        calculations.add(new Map<String, Object>{ 'name' => 'Bad', 'type' => 'formula', 'expression' => 'calc:StageText * 2' });
+        DocBuilderDesignerController.CalcResult bad = DocBuilderDesignerController.calcValues(JSON.serialize(new Map<String, Object>{ 'blocks' => blocks, 'calculations' => calculations }), 'Opportunity', opp.Id);
+        System.assert(!bad.ok && bad.message.contains('is text'), bad.message);
+    }
+
     @IsTest
     static void pickListsForTheDesigner() {
         Boolean hasAccount = false;

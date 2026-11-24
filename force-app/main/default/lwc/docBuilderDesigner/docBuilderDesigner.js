@@ -127,7 +127,8 @@ export default class DocBuilderDesigner extends LightningElement {
         { label: 'Average', value: 'avg' },
         { label: 'Lowest', value: 'min' },
         { label: 'Highest', value: 'max' },
-        { label: 'Formula', value: 'formula' }
+        { label: 'Formula', value: 'formula' },
+        { label: 'Text by value', value: 'lookup' }
     ];
     directionOptions = [
         { label: 'Ascending', value: 'ASC' },
@@ -2962,7 +2963,9 @@ export default class DocBuilderDesigner extends LightningElement {
         ];
         return this.body.calculations.map((c, index) => {
             const isFormula = c.type === 'formula';
-            const childObject = isFormula ? null : this.childObjectOf(c.source);
+            const isLookup = c.type === 'lookup';
+            const lookup = isLookup ? this.lookupView(c, index) : {};
+            const childObject = isFormula || isLookup ? null : this.childObjectOf(c.source);
             const childInfo = childObject ? this.infoFor(childObject) : null;
             if (childObject && !childInfo) {
                 this.loadLater(childObject);
@@ -2985,8 +2988,12 @@ export default class DocBuilderDesigner extends LightningElement {
                 type: c.type || 'count',
                 format: c.format || '',
                 isFormula,
-                isRollup: !isFormula,
-                needsField: !isFormula && c.type !== 'count' && !!c.type,
+                isLookup,
+                isRollup: !isFormula && !isLookup,
+                needsField: !isFormula && !isLookup && c.type !== 'count' && !!c.type,
+                showFormat: !isLookup,
+                caseRows: lookup.rows || [],
+                otherwise: c.otherwise || '',
                 listOptions,
                 childObject,
                 fieldPicker: numericOptions.length > 0,
@@ -2997,9 +3004,104 @@ export default class DocBuilderDesigner extends LightningElement {
                 suggestions: this.fx && this.fx.index === index ? this.fx.items : [],
                 showSuggest: !!(this.fx && this.fx.index === index && this.fx.items.length),
                 hasResult: result !== undefined,
-                result: result !== undefined ? '= ' + result : ''
+                result: result === undefined ? '' : isLookup ? `= "${result}"` : '= ' + result
             };
         });
+    }
+
+    /** The field a Text by value reads, from this object or one related record, with its picklist values. */
+    lookupFieldInfo(path) {
+        const info = this.tpl ? this.infoFor(this.tpl.baseObject) : null;
+        if (!info || !path || path.includes(':')) {
+            return null;
+        }
+        const parts = path.split('.');
+        if (parts.length === 1) {
+            return info.fields.find((f) => f.name.toLowerCase() === path.toLowerCase()) || null;
+        }
+        const lookup = info.fields.find((f) => (f.relationshipName || '').toLowerCase() === parts[0].toLowerCase());
+        const related = lookup ? this.infoFor(lookup.referenceTo) : null;
+        if (lookup && !related) {
+            this.loadLater(lookup.referenceTo);
+        }
+        return related ? related.fields.find((f) => f.name.toLowerCase() === parts[1].toLowerCase()) || null : null;
+    }
+
+    /** The value-to-text rows of a Text by value, each with a pick-list when the field has set values. */
+    lookupView(calc, index) {
+        const field = this.lookupFieldInfo(calc.field);
+        let valueOptions = null;
+        if (field && Array.isArray(field.values) && field.values.length) {
+            valueOptions = field.values.map((v) => ({ label: v, value: v }));
+        } else if (field && field.type === 'Boolean') {
+            valueOptions = [
+                { label: 'Yes (ticked)', value: 'true' },
+                { label: 'No (not ticked)', value: 'false' }
+            ];
+        }
+        const rows = (calc.cases || []).map((k, ci) => {
+            const options = valueOptions ? [{ label: '(empty)', value: '' }, ...valueOptions] : null;
+            if (options && k.value && !options.some((o) => o.value === k.value)) {
+                options.push({ label: k.value + ' (not a current value)', value: k.value });
+            }
+            return { key: index + '-' + ci, ci, value: k.value || '', text: k.text || '', options, isList: !!options };
+        });
+        return { rows };
+    }
+
+    handleAddCase(event) {
+        const index = Number(event.currentTarget.dataset.index);
+        this.mutate((body) => {
+            const calc = body.calculations[index];
+            if (calc) {
+                calc.cases = calc.cases || [];
+                calc.cases.push({ value: '', text: '' });
+            }
+        });
+    }
+
+    /** Adds one row per picklist value that has no row yet, so every value can be given its wording. */
+    handleAddAllCases(event) {
+        const index = Number(event.currentTarget.dataset.index);
+        const field = this.lookupFieldInfo((this.body.calculations[index] || {}).field);
+        const values = field && Array.isArray(field.values) ? field.values : [];
+        this.mutate((body) => {
+            const calc = body.calculations[index];
+            if (!calc) {
+                return;
+            }
+            calc.cases = calc.cases || [];
+            values.filter((v) => !calc.cases.some((k) => k.value === v)).forEach((v) => calc.cases.push({ value: v, text: '' }));
+        });
+    }
+
+    handleRemoveCase(event) {
+        const index = Number(event.currentTarget.dataset.index);
+        const ci = Number(event.currentTarget.dataset.ci);
+        this.mutate((body) => {
+            const calc = body.calculations[index];
+            if (calc && calc.cases) {
+                calc.cases.splice(ci, 1);
+            }
+        });
+    }
+
+    handleCase(event) {
+        const index = Number(event.target.dataset.index);
+        const ci = Number(event.target.dataset.ci);
+        const prop = event.target.dataset.prop;
+        const value = event.detail.value;
+        this.mutate((body) => {
+            const calc = body.calculations[index];
+            if (calc && calc.cases && calc.cases[ci]) {
+                calc.cases[ci][prop] = value;
+            }
+        });
+    }
+
+    /** Calculated values that are text, so rule editors offer text comparisons for them. */
+    get textCalcNames() {
+        return (this.body.calculations || []).filter((c) => c.name && c.type === 'lookup').map((c) => c.name);
     }
 
     pendingObjects = new Set();
@@ -3148,7 +3250,7 @@ export default class DocBuilderDesigner extends LightningElement {
             const term = fragment.substring(5).toLowerCase();
             this.body.calculations
                 .slice(0, index)
-                .filter((c) => c.name && c.name.toLowerCase().startsWith(term))
+                .filter((c) => c.name && c.type !== 'lookup' && c.name.toLowerCase().startsWith(term))
                 .forEach((c) => items.push({ label: c.name, detail: 'Calculated value', insert: 'calc:' + c.name }));
             return { start, items };
         }
@@ -3186,7 +3288,7 @@ export default class DocBuilderDesigner extends LightningElement {
         if (!prefix) {
             this.body.calculations
                 .slice(0, index)
-                .filter((c) => c.name && c.name.toLowerCase().includes(term))
+                .filter((c) => c.name && c.type !== 'lookup' && c.name.toLowerCase().includes(term))
                 .forEach((c) => items.push({ label: c.name, detail: 'Calculated value', insert: 'calc:' + c.name }));
             FX_FUNCTIONS.filter((f) => f.name.toLowerCase().startsWith(term)).forEach((f) => items.push({ label: f.name, detail: f.hint, insert: f.name + '(' }));
         }

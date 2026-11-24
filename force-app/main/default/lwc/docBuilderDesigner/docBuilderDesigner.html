@@ -368,7 +368,7 @@
                                             <lightning-textarea label="Text in this part" value={partView.ifText} onchange={handlePartText}></lightning-textarea>
                                             <p class="part-label">Print it only when</p>
                                             <template lwc:if={partView.sharedHint}><p class="hint">{partView.sharedHint}</p></template>
-                                            <c-doc-builder-rule apex-checks={apexCheckNames} rule={partView.rule} object-name={baseObjectName} calc-names={calcNameList} onrulechange={handlePartRule}></c-doc-builder-rule>
+                                            <c-doc-builder-rule apex-checks={apexCheckNames} text-calcs={textCalcNames} rule={partView.rule} object-name={baseObjectName} calc-names={calcNameList} onrulechange={handlePartRule}></c-doc-builder-rule>
                                             <lightning-textarea label="Otherwise print (optional)" value={partView.elseText} onchange={handlePartElse}></lightning-textarea>
                                             <div class="row-line wrap">
                                                 <button type="button" class="btn small" onclick={handlePartUnwrap}>Always print it</button>
@@ -427,14 +427,14 @@
                                             ></lightning-combobox>
                                             <template lwc:if={c.showRule}>
                                                 <p class="hint">Show the column only if</p>
-                                                <c-doc-builder-rule apex-checks={apexCheckNames} rule={c.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="column" data-index={c.index} onrulechange={handleRule}></c-doc-builder-rule>
+                                                <c-doc-builder-rule apex-checks={apexCheckNames} text-calcs={textCalcNames} rule={c.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="column" data-index={c.index} onrulechange={handleRule}></c-doc-builder-rule>
                                             </template>
                                         </div>
                                     </template>
                                     <button type="button" class="link-btn" data-tab="fields" onclick={handlePanelTab}>Add columns from the field list</button>
 
                                     <h3>Which rows to include</h3>
-                                    <c-doc-builder-rule apex-checks={apexCheckNames} rule={sel.rowFilter} object-name={tableObject} data-target="rowFilter" onrulechange={handleRule}></c-doc-builder-rule>
+                                    <c-doc-builder-rule apex-checks={apexCheckNames} text-calcs={textCalcNames} rule={sel.rowFilter} object-name={tableObject} data-target="rowFilter" onrulechange={handleRule}></c-doc-builder-rule>
 
                                     <h3>Sorting</h3>
                                     <div class="row-line">
@@ -483,7 +483,7 @@
                                                 <lightning-button-icon icon-name="utility:delete" alternative-text="Remove clause" class="row-remove" data-list="items" data-index={i.index} onclick={handleRemoveRow}></lightning-button-icon>
                                             </div>
                                             <p class="hint">Print this clause only if</p>
-                                            <c-doc-builder-rule apex-checks={apexCheckNames} rule={i.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="item" data-index={i.index} onrulechange={handleRule}></c-doc-builder-rule>
+                                            <c-doc-builder-rule apex-checks={apexCheckNames} text-calcs={textCalcNames} rule={i.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="item" data-index={i.index} onrulechange={handleRule}></c-doc-builder-rule>
                                         </div>
                                     </template>
                                     <button type="button" class="btn small" data-list="items" onclick={handleAddRow}>Add clause</button>
@@ -511,7 +511,7 @@
                                 <template lwc:if={selHasRule}>
                                     <h3>Visibility: show this block only if</h3>
                                     <div class="soft">
-                                        <c-doc-builder-rule apex-checks={apexCheckNames} rule={sel.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="showIf" onrulechange={handleRule}></c-doc-builder-rule>
+                                        <c-doc-builder-rule apex-checks={apexCheckNames} text-calcs={textCalcNames} rule={sel.showIf} object-name={baseObjectName} calc-names={calcNameList} data-target="showIf" onrulechange={handleRule}></c-doc-builder-rule>
                                     </div>
                                     <template lwc:if={selIsTextual}>
                                         <lightning-textarea label="Otherwise show this text instead" value={sel.elseText} data-prop="elseText" onchange={handleProp} onfocus={handleFocus}></lightning-textarea>
@@ -615,7 +615,7 @@
                                     <p class="hint">The direction, size and shade also apply to the DRAFT mark on draft documents.</p>
                                     <p class="hint">Show the watermark only if (leave empty to show it always)</p>
                                     <div class="soft">
-                                        <c-doc-builder-rule apex-checks={apexCheckNames} rule={watermark.showIf} object-name={baseObjectName} calc-names={calcNameList} onrulechange={handleWatermarkRule}></c-doc-builder-rule>
+                                        <c-doc-builder-rule apex-checks={apexCheckNames} text-calcs={textCalcNames} rule={watermark.showIf} object-name={baseObjectName} calc-names={calcNameList} onrulechange={handleWatermarkRule}></c-doc-builder-rule>
                                     </div>
                                 </template>
 
@@ -646,7 +646,7 @@
                                                     <lightning-input type="text" label="Email field" placeholder="e.g. Contact.Email" value={s.emailField} data-list="signers" data-index={s.index} data-prop="emailField" onchange={handleRow}></lightning-input>
                                                 </div>
                                                 <p class="hint">Only include rows where (leave empty for everyone). People without an email address are left out.</p>
-                                                <c-doc-builder-rule apex-checks={apexCheckNames} rule={s.filter} object-name={s.ruleObject} data-index={s.index} onrulechange={handleSignerFilter}></c-doc-builder-rule>
+                                                <c-doc-builder-rule apex-checks={apexCheckNames} text-calcs={textCalcNames} rule={s.filter} object-name={s.ruleObject} data-index={s.index} onrulechange={handleSignerFilter}></c-doc-builder-rule>
                                             </template>
                                             <template lwc:if={s.isTyped}>
                                                 <lightning-input type="text" label="Name" value={s.name} data-list="signers" data-index={s.index} data-prop="name" onchange={handleRow} onfocus={handleSignerFocus}></lightning-input>
@@ -769,7 +769,7 @@
                                                 <lightning-button-icon icon-name="utility:delete" alternative-text="Remove condition" class="row-remove" data-list="conditions" data-index={c.index} onclick={handleRemoveRow}></lightning-button-icon>
                                             </div>
                                             <p class="hint">True when</p>
-                                            <c-doc-builder-rule apex-checks={apexCheckNames} rule={c.rule} object-name={baseObjectName} calc-names={calcNameList} data-index={c.index} onrulechange={handleConditionRule}></c-doc-builder-rule>
+                                            <c-doc-builder-rule apex-checks={apexCheckNames} text-calcs={textCalcNames} rule={c.rule} object-name={baseObjectName} calc-names={calcNameList} data-index={c.index} onrulechange={handleConditionRule}></c-doc-builder-rule>
                                             <p class="hint">In text: {c.usage}</p>
                                         </div>
                                     </template>
@@ -822,7 +822,7 @@
                                             </template>
                                             <template lwc:if={c.isRollup}>
                                                 <p class="hint">Only count rows where (leave empty for all rows)</p>
-                                                <c-doc-builder-rule apex-checks={apexCheckNames} rule={c.filter} object-name={c.childObject} data-index={c.index} onrulechange={handleCalcFilter}></c-doc-builder-rule>
+                                                <c-doc-builder-rule apex-checks={apexCheckNames} text-calcs={textCalcNames} rule={c.filter} object-name={c.childObject} data-index={c.index} onrulechange={handleCalcFilter}></c-doc-builder-rule>
                                             </template>
                                             <template lwc:if={c.isFormula}>
                                                 <div class="fx-wrap">
@@ -860,8 +860,31 @@
                                                     <p class="hint">{fxHelp}</p>
                                                 </div>
                                             </template>
+                                            <template lwc:if={c.isLookup}>
+                                                <c-doc-builder-field-picker object-name={baseObjectName} value={c.field} label="Based on" variant="standard" data-list="calculations" data-index={c.index} data-prop="field" onchange={handleRow}></c-doc-builder-field-picker>
+                                                <p class="hint">When the field is… print this text. Fields work in the text too.</p>
+                                                <template for:each={c.caseRows} for:item="k">
+                                                    <div key={k.key} class="case-row">
+                                                        <template lwc:if={k.isList}>
+                                                            <lightning-combobox variant="label-hidden" label="When the value is" placeholder="Choose a value" options={k.options} value={k.value} data-index={c.index} data-ci={k.ci} data-prop="value" onchange={handleCase}></lightning-combobox>
+                                                        </template>
+                                                        <template lwc:else>
+                                                            <lightning-input type="text" variant="label-hidden" label="When the value is" placeholder="Value (empty means blank)" value={k.value} data-index={c.index} data-ci={k.ci} data-prop="value" onchange={handleCase}></lightning-input>
+                                                        </template>
+                                                        <lightning-textarea variant="label-hidden" label="Print this text" placeholder="Text to print" value={k.text} data-index={c.index} data-ci={k.ci} data-prop="text" onchange={handleCase}></lightning-textarea>
+                                                        <lightning-button-icon icon-name="utility:delete" alternative-text="Remove this row" class="row-remove" data-index={c.index} data-ci={k.ci} onclick={handleRemoveCase}></lightning-button-icon>
+                                                    </div>
+                                                </template>
+                                                <div class="row-line">
+                                                    <button type="button" class="btn small" data-index={c.index} onclick={handleAddCase}>Add row</button>
+                                                    <button type="button" class="link-btn" data-index={c.index} onclick={handleAddAllCases}>Add a row for every value</button>
+                                                </div>
+                                                <lightning-textarea label="Otherwise" placeholder="Text when no row matches (can be empty)" value={c.otherwise} data-list="calculations" data-index={c.index} data-prop="otherwise" onchange={handleRow}></lightning-textarea>
+                                            </template>
                                             <template lwc:if={c.hasResult}><div class="fx-result">{c.result}</div></template>
-                                            <lightning-combobox label="Show as" options={formatOptions} value={c.format} data-list="calculations" data-index={c.index} data-prop="format" onchange={handleRow}></lightning-combobox>
+                                            <template lwc:if={c.showFormat}>
+                                                <lightning-combobox label="Show as" options={formatOptions} value={c.format} data-list="calculations" data-index={c.index} data-prop="format" onchange={handleRow}></lightning-combobox>
+                                            </template>
                                         </div>
                                     </template>
                                     <button type="button" class="btn small" data-list="calculations" onclick={handleAddRow}>Add calculated value</button>
